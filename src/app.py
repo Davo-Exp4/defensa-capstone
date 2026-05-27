@@ -487,7 +487,7 @@ if raw_path:
                                 badge_color = "#ef4444"
                                 if st_qual == "Excelente":
                                     badge_color = "#0d9488"
-                                  elif st_qual == "Muy Bueno":
+                                elif st_qual == "Muy Bueno":
                                     badge_color = "#1e3a8a"
                                 elif st_qual == "Bueno":
                                     badge_color = "#8b5cf6"
