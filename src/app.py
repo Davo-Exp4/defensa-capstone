@@ -95,6 +95,36 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# 1.5. Admin Authentication
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    # Center login panel beautifully
+    col_l1, col_l2, col_l3 = st.columns([1, 1.5, 1])
+    with col_l2:
+        st.markdown("""
+        <div style="padding: 2.5rem; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border-top: 6px solid #1e3a8a; text-align: center; margin-top: 50px; margin-bottom: 20px;">
+            <img src="https://img.icons8.com/color/96/graduation-cap.png" width="70" style="margin-bottom: 1rem;"/>
+            <h2 style="margin: 0; color: #1e3a8a; font-weight: 800; font-size: 1.8rem;">Control Capstone</h2>
+            <p style="color: #6b7280; font-size: 0.95rem; margin-top: 0.5rem; margin-bottom: 0px;">Maestría en Inteligencia Artificial Aplicada (MIA)</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("Usuario:", value="", placeholder="Ingrese su usuario")
+            password = st.text_input("Contraseña:", value="", type="password", placeholder="Ingrese su contraseña")
+            submit = st.form_submit_button("🔓 Iniciar Sesión", use_container_width=True)
+            
+            if submit:
+                if username.strip().lower() == "admin" and password == "admin_udla_88*":
+                    st.session_state["authenticated"] = True
+                    st.success("¡Acceso concedido!")
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+    st.stop()
+
 # 2. Sidebar and File Upload
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/graduation-cap.png", width=70)
@@ -148,7 +178,9 @@ with st.sidebar:
         )
         
     st.markdown("---")
-    st.markdown("<p style='font-size:0.8rem; text-align:center; color:#9ca3af;'></p>", unsafe_allow_html=True)
+    if st.button("🔒 Cerrar Sesión", use_container_width=True):
+        st.session_state["authenticated"] = False
+        st.rerun()
 
 # Determine file paths and process functions based on selection
 raw_path = None
