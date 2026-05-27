@@ -443,7 +443,7 @@ def export_to_processed_excel(df_calc, output_path, df_individual=None, df_sched
             # For our test verification, Sheet1 has a very specific format.
             # To pass black-box testing against the Gold Standard, let's write Sheet1
             # with calculated point columns if necessary, or just keep it simple.
-            df_individual.to_excel(writer, sheet_name="Sheet1", index=False)
+            df_individual.to_excel(writer, sheet_name="CALIFICACION GENERAL", index=False)
             
         # 2. Sheet Calculo
         # For historical cohorte_pasada_procesado.xlsx, sheets 'Calculo' and 'Seguimiento'
@@ -745,7 +745,7 @@ def export_to_processed_excel_written(df_calc, output_path, df_individual=None, 
     """
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         if df_individual is not None:
-            df_individual.to_excel(writer, sheet_name="Sheet1", index=False)
+            df_individual.to_excel(writer, sheet_name="CALIFICACION GENERAL", index=False)
             
         df_calc.to_excel(writer, sheet_name="Calculo", index=False)
         df_calc.to_excel(writer, sheet_name="Seguimiento", index=False)

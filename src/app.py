@@ -98,40 +98,55 @@ st.markdown("""
 # 2. Sidebar and File Upload
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/graduation-cap.png", width=70)
-    st.markdown("### **Panel de Carga e Insumos**")
+    st.markdown("### **Menú de Navegación**")
     
-    # Process selection
-    selected_process = st.selectbox(
-        "Seleccione el Proceso a Visualizar:",
-        ["🎓 Defensa Oral", "📝 Proyecto Capstone (Informe Escrito)"]
-    )
-    
-    st.info(f"Sube los reportes en crudo para actualizar las métricas de {selected_process} en tiempo real.")
-    
-    # Files Uploaders based on selection
-    if selected_process == "🎓 Defensa Oral":
-        uploaded_raw = st.file_uploader(
-            "1. Reporte Crudo Defensa (.xlsx)",
-            type=["xlsx"],
-            help="Archivo Excel con respuestas crudas de Microsoft Forms para Defensa Oral"
-        )
-    else:
-        uploaded_raw = st.file_uploader(
-            "1. Reporte Crudo Proyecto Capstone (.xlsx)",
-            type=["xlsx"],
-            help="Archivo Excel con respuestas crudas de Microsoft Forms para el Informe de Proyecto Capstone"
-        )
-    
-    uploaded_schedule = st.file_uploader(
-        "2. Excel de Planificación (Opcional)",
-        type=["xlsx"],
-        help="Archivo Excel con la pestaña 'Hoja1' o 'CALIFICACION-DOCENTE' para control de asistencia y cruce de datos"
+    selected_section = st.selectbox(
+        "Seleccione la Sección a Visualizar:",
+        [
+            "📅 Resumen General de Agenda", 
+            "🎓 Defensa Oral", 
+            "📝 Proyecto Capstone (Informe Escrito)"
+        ]
     )
     
     st.markdown("---")
-    # Demo Data Activation
-    use_demo = st.checkbox("Cargar Cohorte de Prueba (Demo)", value=True, help="Activa los archivos de validación históricos por defecto")
+    st.markdown("### **Carga de Datos Personalizados**")
     
+    uploaded_raw = None
+    uploaded_schedule = None
+    
+    if selected_section == "🎓 Defensa Oral":
+        st.info("Opcionalmente, sube tus reportes personalizados para Defensa Oral.")
+        uploaded_raw = st.file_uploader(
+            "1. Reporte Crudo Defensa Oral (.xlsx)",
+            type=["xlsx"],
+            help="Respuestas de Microsoft Forms para Defensa Oral"
+        )
+        uploaded_schedule = st.file_uploader(
+            "2. Cronograma de Planificación (.xlsx)",
+            type=["xlsx"],
+            help="Archivo de cronograma con las defensas"
+        )
+    elif selected_section == "📝 Proyecto Capstone (Informe Escrito)":
+        st.info("Opcionalmente, sube tus reportes personalizados para el Informe Escrito.")
+        uploaded_raw = st.file_uploader(
+            "1. Reporte Crudo Informe Escrito (.xlsx)",
+            type=["xlsx"],
+            help="Respuestas de Microsoft Forms para Informe Escrito"
+        )
+        uploaded_schedule = st.file_uploader(
+            "2. Cronograma de Planificación (.xlsx)",
+            type=["xlsx"],
+            help="Archivo de cronograma con las defensas"
+        )
+    else:
+        st.info("Opcionalmente, sube tu cronograma de planificación personalizado.")
+        uploaded_schedule = st.file_uploader(
+            "Cronograma de Planificación (.xlsx)",
+            type=["xlsx"],
+            help="Archivo de cronograma con las defensas"
+        )
+        
     st.markdown("---")
     st.markdown("<p style='font-size:0.8rem; text-align:center; color:#9ca3af;'></p>", unsafe_allow_html=True)
 
@@ -139,40 +154,47 @@ with st.sidebar:
 raw_path = None
 schedule_path = None
 
-if selected_process == "🎓 Defensa Oral":
+if selected_section == "🎓 Defensa Oral":
     active_criteria_map = CRITERIA_MAP
     demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"
     process_func = process_oral_defense
     export_func = export_to_processed_excel
     export_file_name = "consolidado_defensa_oral_procesado.xlsx"
-else:
+elif selected_section == "📝 Proyecto Capstone (Informe Escrito)":
     active_criteria_map = WRITTEN_CRITERIA_MAP
     demo_raw_file = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-11).xlsx"
     process_func = process_capstone_written
     export_func = export_to_processed_excel_written
     export_file_name = "consolidado_proyecto_capstone_escrito_procesado.xlsx"
-
-if uploaded_raw:
-    # Save temporary uploaded file
-    with open("temp_raw.xlsx", "wb") as f:
-        f.write(uploaded_raw.getbuffer())
-    raw_path = "temp_raw.xlsx"
 else:
-    if use_demo and os.path.exists(demo_raw_file):
-        raw_path = demo_raw_file
+    active_criteria_map = {}
+    demo_raw_file = None
+    process_func = None
+    export_func = None
+    export_file_name = None
+
+# Save uploaded files or default to preloaded Cohorte 2 data
+if selected_section in ["🎓 Defensa Oral", "📝 Proyecto Capstone (Informe Escrito)"]:
+    if uploaded_raw:
+        with open("temp_raw.xlsx", "wb") as f:
+            f.write(uploaded_raw.getbuffer())
+        raw_path = "temp_raw.xlsx"
+    else:
+        raw_path = demo_raw_file if os.path.exists(demo_raw_file) else None
 
 if uploaded_schedule:
     with open("temp_sched.xlsx", "wb") as f:
         f.write(uploaded_schedule.getbuffer())
     schedule_path = "temp_sched.xlsx"
 else:
-    if use_demo and os.path.exists("data/presentaciones_crcronograma.xlsx"):
-        schedule_path = "data/presentaciones_crcronograma.xlsx"
-    else:
-        schedule_path = None
+    schedule_path = "data/presentaciones_crcronograma.xlsx" if os.path.exists("data/presentaciones_crcronograma.xlsx") else None
 
 # Header Banner
-banner_subtitle = "Defensa Oral (Tribunal)" if selected_process == "🎓 Defensa Oral" else "Proyecto Capstone (Informe Escrito)"
+if selected_section == "📅 Resumen General de Agenda":
+    banner_subtitle = "Cronograma General y Planificación de Defensas"
+else:
+    banner_subtitle = "Defensa Oral (Tribunal)" if selected_section == "🎓 Defensa Oral" else "Proyecto Capstone (Informe Escrito)"
+
 st.markdown(f"""
 <div class="banner">
     <h1>🎓 Sistema de Consolidación Capstone</h1>
@@ -181,7 +203,138 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 3. Main Data Processing Logic
-if raw_path:
+if selected_section == "📅 Resumen General de Agenda":
+    if schedule_path and os.path.exists(schedule_path):
+        try:
+            wb = openpyxl.load_workbook(schedule_path, data_only=True)
+            if "Proyectos agrupados" in wb.sheetnames:
+                sh = wb["Proyectos agrupados"]
+                headers = [cell.value for cell in sh[1]]
+                
+                def get_idx(lst, sub):
+                    for idx, h in enumerate(lst):
+                        if h and sub.lower() in str(h).lower():
+                            return idx
+                    return None
+                
+                idx_group = get_idx(headers, "# GRUPO")
+                idx_day = get_idx(headers, "Día")
+                idx_hour = get_idx(headers, "Hora")
+                idx_sala = get_idx(headers, "Sala")
+                idx_tit = get_idx(headers, "Docente titulación")
+                idx_tutor = get_idx(headers, "Tutor")
+                idx_tercer = get_idx(headers, "Tercer docente")
+                idx_adic = get_idx(headers, "Docente adicional")
+                idx_proj = get_idx(headers, "Proyecto")
+                idx_int = get_idx(headers, "Integrantes")
+                
+                rows = []
+                all_jurors = set()
+                all_students = set()
+                
+                for r_idx in range(2, sh.max_row + 1):
+                    vals = [sh.cell(row=r_idx, column=c).value for c in range(1, len(headers) + 1)]
+                    if any(vals):
+                        # Unique jurors
+                        for c_idx in [idx_tit, idx_tutor, idx_tercer, idx_adic]:
+                            if c_idx is not None and c_idx < len(vals) and vals[c_idx]:
+                                all_jurors.add(str(vals[c_idx]).strip().upper())
+                        # Unique students
+                        if idx_int is not None and idx_int < len(vals) and vals[idx_int]:
+                            students_list = [s.strip() for s in str(vals[idx_int]).split('/') if s.strip()]
+                            for s in students_list:
+                                all_students.add(s.upper())
+                                
+                        rows.append({
+                            "Grupo": vals[idx_group] if idx_group is not None else "",
+                            "Día": f"Día {vals[idx_day]}" if idx_day is not None and vals[idx_day] else "",
+                            "Hora": vals[idx_hour] if idx_hour is not None else "",
+                            "Sala": vals[idx_sala] if idx_sala is not None else "",
+                            "Tutor": vals[idx_tutor] if idx_tutor is not None else "",
+                            "Tribunal / Jurados": (
+                                f"{vals[idx_tit]} / {vals[idx_tercer]}" + 
+                                (f" / {vals[idx_adic]}" if idx_adic is not None and idx_adic < len(vals) and vals[idx_adic] else "")
+                            ) if idx_tit is not None else "",
+                            "Proyecto": vals[idx_proj] if idx_proj is not None else "",
+                            "Integrantes": vals[idx_int] if idx_int is not None else ""
+                        })
+                        
+                df_sched = pd.DataFrame(rows)
+                
+                # Render KPIs
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-card-title">Grupos Programados</div>
+                        <div class="metric-card-value">{len(df_sched)}</div>
+                        <div class="metric-card-desc">Total equipos de defensa</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col2:
+                    st.markdown(f"""
+                    <div class="metric-card" style="border-left-color: #1e3a8a;">
+                        <div class="metric-card-title">Alumnos Registrados</div>
+                        <div class="metric-card-value">{len(all_students)}</div>
+                        <div class="metric-card-desc">Total estudiantes en cronograma</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col3:
+                    st.markdown(f"""
+                    <div class="metric-card" style="border-left-color: #8b5cf6;">
+                        <div class="metric-card-title">Tribunales Asignados</div>
+                        <div class="metric-card-value">{len(all_jurors)}</div>
+                        <div class="metric-card-desc">Evaluadores y Tutores únicos</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col4:
+                    st.markdown(f"""
+                    <div class="metric-card" style="border-left-color: #f59e0b;">
+                        <div class="metric-card-title">Jornadas Programadas</div>
+                        <div class="metric-card-value">{len(df_sched["Día"].dropna().unique())}</div>
+                        <div class="metric-card-desc">Días de defensa oral</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("---")
+                st.markdown("#### **🔍 Búsqueda Avanzada y Filtros de Agenda**")
+                
+                # Filters
+                col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
+                with col_f1:
+                    search_query = st.text_input("Buscar por Estudiante, Proyecto, Docente o Grupo:", placeholder="Ej: Ayala, NovaPet, Ponce...")
+                with col_f2:
+                    filter_sala = st.selectbox("Filtrar por Sala:", ["Todas"] + sorted(list(df_sched["Sala"].dropna().unique())))
+                with col_f3:
+                    filter_dia = st.selectbox("Filtrar por Día:", ["Todos"] + sorted(list(df_sched["Día"].dropna().unique())))
+                
+                # Filter logic
+                df_filtered = df_sched.copy()
+                if filter_sala != "Todas":
+                    df_filtered = df_filtered[df_filtered["Sala"] == filter_sala]
+                if filter_dia != "Todos":
+                    df_filtered = df_filtered[df_filtered["Día"] == filter_dia]
+                if search_query:
+                    q = search_query.lower().strip()
+                    df_filtered = df_filtered[
+                        df_filtered["Integrantes"].astype(str).str.lower().str.contains(q) |
+                        df_filtered["Proyecto"].astype(str).str.lower().str.contains(q) |
+                        df_filtered["Tutor"].astype(str).str.lower().str.contains(q) |
+                        df_filtered["Tribunal / Jurados"].astype(str).str.lower().str.contains(q) |
+                        df_filtered["Grupo"].astype(str).str.lower().str.contains(q)
+                    ]
+                
+                st.markdown(f"**Defensas encontradas:** {len(df_filtered)}")
+                st.dataframe(df_filtered.reset_index(drop=True), use_container_width=True)
+                
+            else:
+                st.error("No se pudo encontrar la pestaña 'Proyectos agrupados' en el cronograma.")
+        except Exception as e:
+            st.error(f"Error al cargar el cronograma: {e}")
+    else:
+        st.warning("⚠️ No se ha encontrado un cronograma en presentations_crcronograma.xlsx o cargado en la barra lateral.")
+
+elif raw_path:
     try:
         # Load and run backend engine
         df_individual, df_calc, df_compliance, df_schedule = process_func(raw_path, schedule_path)
