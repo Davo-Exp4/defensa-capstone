@@ -494,14 +494,13 @@ if raw_path:
                                 elif st_qual == "Regular":
                                     badge_color = "#f59e0b"
                                     
-                                st.markdown(f"""
-                                <div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 12px; border-top: 5px solid {badge_color}; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 1rem;">
-                                    <h4 style="margin: 0; color: #1f2937;">{st_raw_name}</h4>
-                                    {f'<p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: #4b5563; font-style: italic;"><b>Proyecto:</b> {st_proj}</p>' if st_proj else ''}
-                                    <p style="margin: 0.5rem 0 0 0; font-size: 1.8rem; font-weight: 800; color: #111827;">{st_grade:.2f}/100</p>
-                                    <p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; font-weight: bold; color: {badge_color};">{st_qual}</p>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                html_card = f"""<div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 12px; border-top: 5px solid {badge_color}; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 1rem;">
+<h4 style="margin: 0; color: #1f2937;">{st_raw_name}</h4>
+{f'<p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: #4b5563; font-style: italic;"><b>Proyecto:</b> {st_proj}</p>' if st_proj else ''}
+<p style="margin: 0.5rem 0 0 0; font-size: 1.8rem; font-weight: 800; color: #111827;">{st_grade:.2f}/100</p>
+<p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; font-weight: bold; color: {badge_color};">{st_qual}</p>
+</div>"""
+                                st.markdown(html_card, unsafe_allow_html=True)
                                 
                                 # Criteria breakdown inside expander
                                 with st.expander(f"📋 Rúbrica desglosada"):
