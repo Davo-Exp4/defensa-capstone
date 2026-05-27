@@ -124,16 +124,15 @@ if uploaded_raw:
         f.write(uploaded_raw.getbuffer())
     raw_path = "temp_raw.xlsx"
 else:
-    if use_demo and os.path.exists("data/cohorte_pasada_crudo.xlsx"):
-        raw_path = "data/cohorte_pasada_crudo.xlsx"
+    if use_demo and os.path.exists("data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"):
+        raw_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"
 
 if uploaded_schedule:
     with open("temp_sched.xlsx", "wb") as f:
         f.write(uploaded_schedule.getbuffer())
     schedule_path = "temp_sched.xlsx"
 else:
-    if use_demo and os.path.exists("data/cohorte_pasada_procesado.xlsx"):
-        schedule_path = "data/cohorte_pasada_procesado.xlsx"
+    schedule_path = None
 
 # Header Banner
 st.markdown("""
