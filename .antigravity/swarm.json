@@ -1,0 +1,25 @@
+{
+  "project": "Grader Automation Swarm",
+  "version": "2.0",
+  "pipeline_mode": "strict_step_by_step",
+  "agents": [
+    {
+      "role": "Architect",
+      "model": "claude-sonnet-4.6-thinking",
+      "tier": "High",
+      "task": "Analizar las rúbricas y las columnas de los archivos de la cohorte pasada. Diseñar la estructura modular del script de Python y guardar los planos de datos en blueprint.md."
+    },
+    {
+      "role": "Data_Engineer",
+      "model": "qwen3.6-plus",
+      "tier": "Medium",
+      "task": "Leer blueprint.md e implementar la lógica pura en Python con Pandas para la limpieza de texto, extracción con Regex y cálculo de promedios en la carpeta src/."
+    },
+    {
+      "role": "QA_Validator",
+      "model": "minimax-m2.7",
+      "tier": "Medium",
+      "task": "Ejecutar el script generado contra los datos históricos de validación de data/. Comprobar celda por celda que el output coincida con el Excel procesado del ciclo pasado. Generar reporte de conformidad de calidad."
+    }
+  ]
+}
