@@ -2,6 +2,23 @@ import pandas as pd
 import openpyxl
 from src.parser import extract_points
 from src.cleaner import normalize_name, split_group_names
+def map_day_to_date(day_val):
+    """
+    Maps day numbers (1, 2, 3, 4) to institutional defense dates starting May 26th.
+    """
+    if day_val is None or str(day_val).strip() == "":
+        return ""
+    try:
+        d_num = int(float(str(day_val).strip()))
+        mapping = {
+            1: "Día 1 (26 de mayo)",
+            2: "Día 2 (27 de mayo)",
+            3: "Día 3 (28 de mayo)",
+            4: "Día 4 (29 de mayo)"
+        }
+        return mapping.get(d_num, f"Día {d_num}")
+    except ValueError:
+        return f"Día {day_val}"
 
 # The 7 criteria in the exact order and with the exact names used in the historical processed file
 CRITERIA_MAP = {
@@ -281,7 +298,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                         sched_rows.append({
                             "Docente": primary_doc,
                             "Estudiante(s) por calificar": names_str,
-                            "Día y Fecha": f"Día {first_row['day']}" if first_row["day"] else "",
+                            "Día y Fecha": map_day_to_date(first_row['day']),
                             "Hora": first_row["hour"],
                             "Sala": first_row["sala"],
                             "Proyecto": first_row["project"]
@@ -292,7 +309,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                     for _, s_row in df_sched_raw.iterrows():
                         s_norm = s_row["student_norm"]
                         s_raw = s_row["student_raw"]
-                        day_lbl = f"Día {s_row['day']}" if s_row["day"] else ""
+                        day_lbl = map_day_to_date(s_row['day'])
                         
                         # Assigned docents list
                         assigned_jurors = []
@@ -689,7 +706,7 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                         sched_rows.append({
                             "Docente": first_row["doc_tutor"],
                             "Estudiante(s) por calificar": names_str,
-                            "Día y Fecha": f"Día {first_row['day']}" if first_row["day"] else "",
+                            "Día y Fecha": map_day_to_date(first_row['day']),
                             "Hora": first_row["hour"],
                             "Sala": first_row["sala"],
                             "Proyecto": first_row["project"]
@@ -700,7 +717,7 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                     for _, s_row in df_sched_raw.iterrows():
                         s_norm = s_row["student_norm"]
                         s_raw = s_row["student_raw"]
-                        day_lbl = f"Día {s_row['day']}" if s_row["day"] else ""
+                        day_lbl = map_day_to_date(s_row['day'])
                         
                         tutor_raw = s_row["doc_tutor"]
                         if tutor_raw:

@@ -16,7 +16,8 @@ from src.engine import (
     CRITERIA_MAP,
     process_capstone_written,
     export_to_processed_excel_written,
-    WRITTEN_CRITERIA_MAP
+    WRITTEN_CRITERIA_MAP,
+    map_day_to_date
 )
 from src.cleaner import normalize_name, split_group_names
 
@@ -279,7 +280,7 @@ if selected_section == "📅 Resumen General de Agenda":
                                 
                         rows.append({
                             "Grupo": vals[idx_group] if idx_group is not None else "",
-                            "Día": f"Día {vals[idx_day]}" if idx_day is not None and vals[idx_day] else "",
+                            "Día": map_day_to_date(vals[idx_day]) if idx_day is not None and vals[idx_day] else "",
                             "Hora": vals[idx_hour] if idx_hour is not None else "",
                             "Sala": vals[idx_sala] if idx_sala is not None else "",
                             "Tutor": vals[idx_tutor] if idx_tutor is not None else "",
