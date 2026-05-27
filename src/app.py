@@ -10,7 +10,14 @@ import openpyxl
 from io import BytesIO
 
 # Import our backend engine
-from src.engine import process_oral_defense, export_to_processed_excel, CRITERIA_MAP
+from src.engine import (
+    process_oral_defense, 
+    export_to_processed_excel, 
+    CRITERIA_MAP,
+    process_capstone_written,
+    export_to_processed_excel_written,
+    WRITTEN_CRITERIA_MAP
+)
 from src.cleaner import normalize_name, split_group_names
 
 # 1. Page Configuration and Aesthetics
@@ -92,19 +99,33 @@ st.markdown("""
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/graduation-cap.png", width=70)
     st.markdown("### **Panel de Carga e Insumos**")
-    st.info("Sube los reportes en crudo para actualizar las métricas y reportes en tiempo real.")
     
-    # Files Uploaders
-    uploaded_raw = st.file_uploader(
-        "1. Reporte Crudo Defensa (.xlsx)",
-        type=["xlsx"],
-        help="Archivo Excel con respuestas crudas de Microsoft Forms"
+    # Process selection
+    selected_process = st.selectbox(
+        "Seleccione el Proceso a Visualizar:",
+        ["🎓 Defensa Oral", "📝 Proyecto Capstone (Informe Escrito)"]
     )
+    
+    st.info(f"Sube los reportes en crudo para actualizar las métricas de {selected_process} en tiempo real.")
+    
+    # Files Uploaders based on selection
+    if selected_process == "🎓 Defensa Oral":
+        uploaded_raw = st.file_uploader(
+            "1. Reporte Crudo Defensa (.xlsx)",
+            type=["xlsx"],
+            help="Archivo Excel con respuestas crudas de Microsoft Forms para Defensa Oral"
+        )
+    else:
+        uploaded_raw = st.file_uploader(
+            "1. Reporte Crudo Proyecto Capstone (.xlsx)",
+            type=["xlsx"],
+            help="Archivo Excel con respuestas crudas de Microsoft Forms para el Informe de Proyecto Capstone"
+        )
     
     uploaded_schedule = st.file_uploader(
         "2. Excel de Planificación (Opcional)",
         type=["xlsx"],
-        help="Archivo Excel con la pestaña 'CALIFICACION-DOCENTE' para control de asistencia"
+        help="Archivo Excel con la pestaña 'Hoja1' o 'CALIFICACION-DOCENTE' para control de asistencia y cruce de datos"
     )
     
     st.markdown("---")
@@ -112,11 +133,24 @@ with st.sidebar:
     use_demo = st.checkbox("Cargar Cohorte de Prueba (Demo)", value=True, help="Activa los archivos de validación históricos por defecto")
     
     st.markdown("---")
-    st.markdown("<p style='font-size:0.8rem; text-align:center; color:#9ca3af;'>Desarrollado con ❤️ por el MIA Team | © 2026</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:0.8rem; text-align:center; color:#9ca3af;'></p>", unsafe_allow_html=True)
 
-# Determine file paths
+# Determine file paths and process functions based on selection
 raw_path = None
 schedule_path = None
+
+if selected_process == "🎓 Defensa Oral":
+    active_criteria_map = CRITERIA_MAP
+    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"
+    process_func = process_oral_defense
+    export_func = export_to_processed_excel
+    export_file_name = "consolidado_defensa_oral_procesado.xlsx"
+else:
+    active_criteria_map = WRITTEN_CRITERIA_MAP
+    demo_raw_file = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-11).xlsx"
+    process_func = process_capstone_written
+    export_func = export_to_processed_excel_written
+    export_file_name = "consolidado_proyecto_capstone_escrito_procesado.xlsx"
 
 if uploaded_raw:
     # Save temporary uploaded file
@@ -124,21 +158,25 @@ if uploaded_raw:
         f.write(uploaded_raw.getbuffer())
     raw_path = "temp_raw.xlsx"
 else:
-    if use_demo and os.path.exists("data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"):
-        raw_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"
+    if use_demo and os.path.exists(demo_raw_file):
+        raw_path = demo_raw_file
 
 if uploaded_schedule:
     with open("temp_sched.xlsx", "wb") as f:
         f.write(uploaded_schedule.getbuffer())
     schedule_path = "temp_sched.xlsx"
 else:
-    schedule_path = None
+    if use_demo and os.path.exists("data/presentaciones_crcronograma.xlsx"):
+        schedule_path = "data/presentaciones_crcronograma.xlsx"
+    else:
+        schedule_path = None
 
 # Header Banner
-st.markdown("""
+banner_subtitle = "Defensa Oral (Tribunal)" if selected_process == "🎓 Defensa Oral" else "Proyecto Capstone (Informe Escrito)"
+st.markdown(f"""
 <div class="banner">
     <h1>🎓 Sistema de Consolidación Capstone</h1>
-    <p>Automatización del procesamiento de rúbricas y analítica de Defensa Oral</p>
+    <p>Automatización del procesamiento de rúbricas y analítica de {banner_subtitle}</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -146,7 +184,7 @@ st.markdown("""
 if raw_path:
     try:
         # Load and run backend engine
-        df_individual, df_calc, df_compliance, df_schedule = process_oral_defense(raw_path, schedule_path)
+        df_individual, df_calc, df_compliance, df_schedule = process_func(raw_path, schedule_path)
         
         # 4. TABBED INTERFACE
         tab_general, tab_individual, tab_group, tab_compliance, tab_exporter = st.tabs([
@@ -245,7 +283,7 @@ if raw_path:
                 # Calculate average for each criteria
                 criteria_averages = []
                 criteria_names = []
-                for key, c_info in CRITERIA_MAP.items():
+                for key, c_info in active_criteria_map.items():
                     avg_score_pts = df_calc[c_info["clean_name"]].mean()
                     # Normalize to % for fair comparison
                     avg_score_pct = (avg_score_pts / c_info["max_pts"]) * 100
@@ -340,7 +378,7 @@ if raw_path:
                 
                 # Build beautiful breakdown table
                 breakdown_records = []
-                for key, c_info in CRITERIA_MAP.items():
+                for key, c_info in active_criteria_map.items():
                     avg_pts = student_summary[c_info["clean_name"]]
                     qual_lbl = student_summary[c_info["qual_name"]]
                     pct = (avg_pts / c_info["max_pts"]) * 100
@@ -368,7 +406,7 @@ if raw_path:
                         
                         # Gather their specific grades
                         juror_grades = []
-                        for key, c_info in CRITERIA_MAP.items():
+                        for key, c_info in active_criteria_map.items():
                             pts = row_eval[f"{key}_pts"]
                             raw_desc = row_eval[f"{key}_raw"]
                             juror_grades.append(f"**{c_info['raw_pattern'].strip()}**: {pts} pts ({raw_desc})")
@@ -381,7 +419,7 @@ if raw_path:
                                 feedbacks.append(f"*{h_col}*: {row_eval[h_col]}")
                         
                         # Expander for each juror
-                        with st.expander(f"🔔 Evaluador {j_idx}: {juror_name} — Calificación Total: {sum(row_eval[f'{key}_pts'] for key in CRITERIA_MAP):.0f}/100"):
+                        with st.expander(f"🔔 Evaluador {j_idx}: {juror_name} — Calificación Total: {sum(row_eval[f'{key}_pts'] for key in active_criteria_map):.0f}/100"):
                             col_j1, col_j2 = st.columns(2)
                             with col_j1:
                                 st.markdown("**Puntajes en Rúbrica:**")
@@ -444,11 +482,12 @@ if raw_path:
                                 st_raw_name = st_sum["Seleccione el nombre del Estudiante"]
                                 st_grade = st_sum["Nota ponderada"]
                                 st_qual = st_sum["Nota Rubrica Promedio"]
+                                st_proj = st_sum["Proyecto"] if "Proyecto" in st_sum else ""
                                 
                                 badge_color = "#ef4444"
                                 if st_qual == "Excelente":
                                     badge_color = "#0d9488"
-                                elif st_qual == "Muy Bueno":
+                                  elif st_qual == "Muy Bueno":
                                     badge_color = "#1e3a8a"
                                 elif st_qual == "Bueno":
                                     badge_color = "#8b5cf6"
@@ -458,6 +497,7 @@ if raw_path:
                                 st.markdown(f"""
                                 <div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 12px; border-top: 5px solid {badge_color}; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 1rem;">
                                     <h4 style="margin: 0; color: #1f2937;">{st_raw_name}</h4>
+                                    {f'<p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: #4b5563; font-style: italic;"><b>Proyecto:</b> {st_proj}</p>' if st_proj else ''}
                                     <p style="margin: 0.5rem 0 0 0; font-size: 1.8rem; font-weight: 800; color: #111827;">{st_grade:.2f}/100</p>
                                     <p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; font-weight: bold; color: {badge_color};">{st_qual}</p>
                                 </div>
@@ -466,7 +506,7 @@ if raw_path:
                                 # Criteria breakdown inside expander
                                 with st.expander(f"📋 Rúbrica desglosada"):
                                     breakdown_items = []
-                                    for key, c_info in CRITERIA_MAP.items():
+                                    for key, c_info in active_criteria_map.items():
                                         pts = st_sum[c_info["clean_name"]]
                                         lbl = st_sum[c_info["qual_name"]]
                                         breakdown_items.append(f"**{c_info['raw_pattern'].strip()}:** {pts:.2f} pts ({lbl})")
@@ -478,7 +518,7 @@ if raw_path:
                                     with st.expander(f"🔔 Rúbricas de Jurados ({len(df_st_evals)})"):
                                         for j_idx, (_, row_eval) in enumerate(df_st_evals.iterrows(), 1):
                                             st.markdown(f"**Jurado {j_idx}: {row_eval['Evaluator_Raw']}**")
-                                            j_score = sum(row_eval[f'{key}_pts'] for key in CRITERIA_MAP)
+                                            j_score = sum(row_eval[f'{key}_pts'] for key in active_criteria_map)
                                             st.write(f"Nota: {j_score:.0f}/100")
                                             # Show text feedback if any
                                             feedbacks = []
@@ -559,13 +599,13 @@ if raw_path:
             
             # Export logic
             output_stream = BytesIO()
-            export_to_processed_excel(df_calc, output_stream, df_individual, df_schedule)
+            export_func(df_calc, output_stream, df_individual, df_schedule)
             excel_data = output_stream.getvalue()
             
             col_exp1, col_exp2 = st.columns(2)
             with col_exp1:
-                st.markdown("""
-                ##### **Reporte Excel Oficial (.xlsx)**
+                st.markdown(f"""
+                ##### **Reporte Excel Oficial (.xlsx) - {selected_process}**
                 Contiene:
                 * **Sheet1**: Base de datos de evaluaciones con campos completos.
                 * **Calculo y Seguimiento**: Promedios ponderados e IFS cualitativos para cada estudiante ordenados de forma alfabética.
@@ -575,7 +615,7 @@ if raw_path:
                 st.download_button(
                     label="📥 Descargar Reporte Excel Consolidado",
                     data=excel_data,
-                    file_name="consolidado_defensa_oral_procesado.xlsx",
+                    file_name=export_file_name,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
@@ -594,4 +634,4 @@ if raw_path:
 else:
     # Landing page instructions if no file is uploaded and demo is off
     st.warning("⚠️ Esperando carga de datos.")
-    st.info("Sube el **Reporte Crudo de Defensa Oral (.xlsx)** en la barra lateral o activa la opción **'Cargar Cohorte de Prueba (Demo)'** para iniciar inmediatamente.")
+    st.info(f"Sube el **Reporte Crudo de {selected_process} (.xlsx)** en la barra lateral o activa la opción **'Cargar Cohorte de Prueba (Demo)'** para iniciar inmediatamente.")

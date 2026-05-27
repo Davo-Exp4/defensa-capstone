@@ -221,11 +221,122 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
     compliance_records = []
     df_schedule = None
     
-    # Check if a schedule Excel path is provided
+    # Try loading new presentations schedule format (e.g. presentaciones_crcronograma.xlsx)
     if schedule_excel_path:
         try:
             sched_wb = openpyxl.load_workbook(schedule_excel_path, data_only=True)
-            if "CALIFICACION-DOCENTE" in sched_wb.sheetnames:
+            if "Hoja1" in sched_wb.sheetnames:
+                # This is the presentations schedule!
+                h_sheet = sched_wb["Hoja1"]
+                h_headers = [c.value for c in h_sheet[1]]
+                
+                # Find indices dynamically
+                idx_name = find_column_by_substring(h_headers, "NOMBRE")
+                idx_group = find_column_by_substring(h_headers, "# GRUPO")
+                idx_day = find_column_by_substring(h_headers, "DÍA DEFENSA")
+                idx_hour = find_column_by_substring(h_headers, "HORA")
+                idx_sala = find_column_by_substring(h_headers, "SALA")
+                idx_tit = find_column_by_substring(h_headers, "DOCENTE TITULACIÓN")
+                idx_tutor = find_column_by_substring(h_headers, "TUTOR")
+                idx_tercer = find_column_by_substring(h_headers, "TERCER DOCENTE")
+                idx_adic = find_column_by_substring(h_headers, "DOCENTE ADICIONAL")
+                idx_proj = find_column_by_substring(h_headers, "proyecto")
+                
+                # Read all scheduled students
+                students_schedule = []
+                for r_idx in range(2, h_sheet.max_row + 1):
+                    row_vals = [h_sheet.cell(row=r_idx, column=c).value for c in range(1, len(h_headers) + 1)]
+                    if any(row_vals):
+                        s_name = row_vals[idx_name] if idx_name is not None else None
+                        if s_name:
+                            students_schedule.append({
+                                "student_raw": s_name,
+                                "student_norm": normalize_name(s_name),
+                                "group": row_vals[idx_group] if idx_group is not None else "",
+                                "day": row_vals[idx_day] if idx_day is not None else "",
+                                "hour": row_vals[idx_hour] if idx_hour is not None else "",
+                                "sala": row_vals[idx_sala] if idx_sala is not None else "",
+                                "doc_tit": row_vals[idx_tit] if idx_tit is not None else "",
+                                "doc_tutor": row_vals[idx_tutor] if idx_tutor is not None else "",
+                                "doc_tercer": row_vals[idx_tercer] if idx_tercer is not None else "",
+                                "doc_adic": row_vals[idx_adic] if idx_adic is not None else "",
+                                "project": row_vals[idx_proj] if idx_proj is not None else ""
+                            })
+                            
+                df_sched_raw = pd.DataFrame(students_schedule)
+                
+                if not df_sched_raw.empty:
+                    # Group by group number to concatenate student names
+                    grouped_sched = df_sched_raw.groupby("group")
+                    sched_rows = []
+                    for g_num, group_df in grouped_sched:
+                        names_list = list(group_df["student_raw"].unique())
+                        # Standardize with slash mapping user's cronograma sheet
+                        names_str = " / ".join(names_list)
+                        
+                        first_row = group_df.iloc[0]
+                        # We use tutor as primary docent for display
+                        primary_doc = first_row["doc_tutor"] if first_row["doc_tutor"] else first_row["doc_tit"]
+                        
+                        sched_rows.append({
+                            "Docente": primary_doc,
+                            "Estudiante(s) por calificar": names_str,
+                            "Día y Fecha": f"Día {first_row['day']}" if first_row["day"] else "",
+                            "Hora": first_row["hour"],
+                            "Sala": first_row["sala"],
+                            "Proyecto": first_row["project"]
+                        })
+                    df_schedule = pd.DataFrame(sched_rows)
+                    
+                    # Construct compliance records with role-based checks!
+                    for _, s_row in df_sched_raw.iterrows():
+                        s_norm = s_row["student_norm"]
+                        s_raw = s_row["student_raw"]
+                        day_lbl = f"Día {s_row['day']}" if s_row["day"] else ""
+                        
+                        # Assigned docents list
+                        assigned_jurors = []
+                        if s_row["doc_tit"]:
+                            assigned_jurors.append((s_row["doc_tit"], "Docente titulación"))
+                        if s_row["doc_tutor"]:
+                            assigned_jurors.append((s_row["doc_tutor"], "Tutor"))
+                        if s_row["doc_tercer"]:
+                            assigned_jurors.append((s_row["doc_tercer"], "Tercer docente"))
+                        if s_row["doc_adic"]:
+                            assigned_jurors.append((s_row["doc_adic"], "Docente adicional"))
+                            
+                        # For each assigned docent, check if they evaluated this student
+                        for juror_raw, role in assigned_jurors:
+                            juror_norm = normalize_name(juror_raw)
+                            has_submitted = False
+                            if not df_individual.empty:
+                                submitted = df_individual[
+                                    (df_individual["Student_Normalized"] == s_norm) &
+                                    (df_individual["Evaluator_Normalized"] == juror_norm)
+                                ]
+                                if not submitted.empty:
+                                    has_submitted = True
+                                    
+                            # Reconstruct group names for context
+                            classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
+                            group_context = " / ".join(classmates)
+                            
+                            compliance_records.append({
+                                "Docente": juror_raw,
+                                "Docente_Normalized": juror_norm,
+                                "Estudiante": s_raw,
+                                "Estudiante_Normalized": s_norm,
+                                "Grupo_Alumnos": group_context,
+                                "Día y Fecha": day_lbl,
+                                "Hora": s_row["hour"],
+                                "Sala": s_row["sala"],
+                                "Rol": role,
+                                "Estado": "Completado" if has_submitted else "Pendiente",
+                                "Proyecto": s_row["project"]
+                            })
+                            
+            elif "CALIFICACION-DOCENTE" in sched_wb.sheetnames:
+                # Fallback to old schedule format
                 sched_sheet = sched_wb["CALIFICACION-DOCENTE"]
                 sched_rows = []
                 for r_idx in range(2, sched_sheet.max_row + 1):
@@ -262,10 +373,9 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
         except Exception as e:
             print(f"Error loading schedule from raw workbook: {e}")
 
-    # Build compliance tracker if schedule is available
-    if df_schedule is not None:
-        # Cross-reference
-        # We need to map each scheduled student to their assigned docent, sala, hour, day.
+    # Build compliance tracker if schedule is available and no new records were populated
+    if df_schedule is not None and not compliance_records:
+        # Cross-reference old format
         for idx, row in df_schedule.iterrows():
             docente_raw = row["Docente"]
             students_field = row["Estudiante(s) por calificar"]
@@ -280,10 +390,6 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                 
                 # Check for each student if this evaluator has submitted a grade
                 for s_norm in assigned_students:
-                    # Let's find if there is a match in raw submissions
-                    # Find student in raw df
-                    # Match name by normalization
-                    # Filter by normalized student and normalized evaluator
                     has_submitted = False
                     if not df_individual.empty:
                         submitted_rows = df_individual[
@@ -293,7 +399,6 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                         if not submitted_rows.empty:
                             has_submitted = True
                     
-                    # Try to reconstruct the actual Student Raw name from schedule or raw evaluations
                     s_raw_name = ""
                     if not df_individual.empty:
                         matched_evals = df_individual[df_individual["Student_Normalized"] == s_norm]
@@ -319,6 +424,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                         "Día y Fecha": day,
                         "Hora": hour,
                         "Sala": sala,
+                        "Rol": "Jurado",
                         "Estado": "Completado" if has_submitted else "Pendiente"
                     })
                     
@@ -359,4 +465,301 @@ def export_to_processed_excel(df_calc, output_path, df_individual=None, df_sched
             ("INSUFICIENTE", 4, 2)
         ]
         df_pesos = pd.DataFrame(pesos_data, columns=["Nivel (A)", "Puntos_20 (B)", "Puntos_10 (C)"])
+        df_pesos.to_excel(writer, sheet_name="PESOS", index=False)
+
+
+# ==========================================
+# PROYECTO CAPSTONE (INFORME ESCRITO) ENGINE
+# ==========================================
+
+WRITTEN_CRITERIA_MAP = {
+    "estructura": {
+        "raw_pattern": "Estructura y claridad del informe",
+        "clean_name": "Promedio de Points - Estructura y claridad del informe",
+        "qual_name": "Rubrica - Estructura y claridad del informe",
+        "max_pts": 25
+    },
+    "metodologia": {
+        "raw_pattern": "Metodología y coherencia",
+        "clean_name": "Promedio de Points - Metodología y coherencia",
+        "qual_name": "Rubrica - Metodología y coherencia",
+        "max_pts": 30
+    },
+    "resultados": {
+        "raw_pattern": "Resultados y Conclusiones",
+        "clean_name": "Promedio de Points - Resultados y conclusiones",
+        "qual_name": "Rubrica - Resultados y conclusiones",
+        "max_pts": 25
+    },
+    "diapositivas": {
+        "raw_pattern": "Calidad de diapositivas",
+        "clean_name": "Promedio de Points - Calidad de diapositivas",
+        "qual_name": "Rubrica - Calidad de diapositivas",
+        "max_pts": 10
+    },
+    "lineamientos": {
+        "raw_pattern": "Lineamientos y citación",
+        "clean_name": "Promedio de Points - Lineamientos y citación",
+        "qual_name": "Rubrica - Lineamientos y citación",
+        "max_pts": 10
+    }
+}
+
+def get_qualitative_label_percent(score, max_pts):
+    """
+    Returns qualitative label based on standard percentage ranges:
+    Excelente (>=90%), Muy bueno (>=70%), Bueno (>=50%), Regular (>=30%), Insuficiente (<30%)
+    """
+    rounded = round(score, 10)
+    pct = rounded / max_pts
+    if pct >= 0.90:
+        return "Excelente"
+    elif pct >= 0.70:
+        return "Muy bueno"
+    elif pct >= 0.50:
+        return "Bueno"
+    elif pct >= 0.30:
+        return "Regular"
+    else:
+        return "Insuficiente"
+
+def process_capstone_written(raw_excel_path, schedule_excel_path=None):
+    """
+    Processes the raw Microsoft Forms Excel sheet for Capstone Written Report.
+    Each submission in the raw file represents a group's evaluation by a tutor.
+    We split group student names, allocate the evaluation individually,
+    average multiple evaluations if they exist, map qualitative labels,
+    and cross-reference compliance (each scheduled student expects exactly 1 evaluation from their assigned TUTOR).
+    """
+    import re
+    wb = openpyxl.load_workbook(raw_excel_path, data_only=True)
+    sheet = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb.active
+    
+    headers = [cell.value for cell in sheet[1]]
+    
+    # Identify key columns
+    evaluator_col_idx = find_column_by_substring(headers, "Seleccione su nombre (Evaluador)")
+    group_col_idx = find_column_by_substring(headers, "Seleccione el grupo a evaluar")
+    project_col_idx = find_column_by_substring(headers, "Proyecto")
+    
+    if evaluator_col_idx is None:
+        evaluator_col_idx = find_column_by_substring(headers, "Evaluador")
+    if group_col_idx is None:
+        group_col_idx = find_column_by_substring(headers, "grupo")
+    
+    if evaluator_col_idx is None or group_col_idx is None:
+        raise ValueError("No se pudieron encontrar las columnas requeridas (Evaluador / Grupo).")
+        
+    # Criteria column indices
+    criteria_indices = {}
+    for key, c_info in WRITTEN_CRITERIA_MAP.items():
+        idx = find_column_by_substring(headers, c_info["raw_pattern"])
+        if idx is None:
+            # Try a shorter substring
+            short_pat = c_info["raw_pattern"].split()[0]
+            idx = find_column_by_substring(headers, short_pat)
+        if idx is None:
+            raise ValueError(f"No se pudo encontrar la columna para el criterio: '{c_info['raw_pattern']}'.")
+        criteria_indices[key] = idx
+        
+    # Extract records and split students
+    records = []
+    for r_idx in range(2, sheet.max_row + 1):
+        row_vals = [sheet.cell(row=r_idx, column=c).value for c in range(1, len(headers) + 1)]
+        if not any(row_vals):
+            continue
+            
+        evaluator_raw = row_vals[evaluator_col_idx]
+        group_raw = row_vals[group_col_idx]
+        project_raw = row_vals[project_col_idx] if project_col_idx is not None else ""
+        
+        if not group_raw:
+            continue
+            
+        # Split names using our flexible split logic
+        members_normalized = split_group_names(group_raw)
+        members_raw = [m.strip() for m in re.split(r'[,/]', str(group_raw)) if m.strip()]
+        
+        # In case the lists differ in length, zip carefully or map raw names to normalized
+        for i, s_norm in enumerate(members_normalized):
+            s_raw = members_raw[i] if i < len(members_raw) else s_norm
+            
+            rec = {
+                "Id": row_vals[0],
+                "Student_Raw": s_raw,
+                "Student_Normalized": s_norm,
+                "Evaluator_Raw": evaluator_raw,
+                "Evaluator_Normalized": normalize_name(evaluator_raw),
+                "Project_Raw": project_raw,
+                "Group_Raw": group_raw
+            }
+            
+            for key, idx in criteria_indices.items():
+                raw_val = row_vals[idx]
+                points = extract_points(raw_val)
+                rec[f"{key}_pts"] = points
+                rec[f"{key}_raw"] = raw_val
+                
+            records.append(rec)
+            
+    df_individual = pd.DataFrame(records) if records else pd.DataFrame(columns=[
+        "Id", "Student_Raw", "Student_Normalized", "Evaluator_Raw", "Evaluator_Normalized", "Project_Raw", "Group_Raw"
+    ])
+    
+    # Consolidate by student
+    consolidated = []
+    if not df_individual.empty:
+        grouped = df_individual.groupby("Student_Raw")
+        for student_raw, group in grouped:
+            student_norm = group["Student_Normalized"].iloc[0]
+            eval_count = len(group)
+            
+            res = {
+                "Seleccione el nombre del Estudiante": student_raw,
+                "Cuenta de Seleccione su nombre (Evaluador)": eval_count,
+                "Proyecto": group["Project_Raw"].iloc[0] if group["Project_Raw"].iloc[0] else ""
+            }
+            
+            nota_ponderada = 0.0
+            for key, c_info in WRITTEN_CRITERIA_MAP.items():
+                avg_val = group[f"{key}_pts"].mean()
+                res[c_info["clean_name"]] = avg_val
+                res[c_info["qual_name"]] = get_qualitative_label_percent(avg_val, c_info["max_pts"])
+                nota_ponderada += avg_val
+                
+            res["Nota ponderada"] = nota_ponderada
+            res["Nota Rubrica Promedio"] = get_qualitative_label_final(nota_ponderada)
+            
+            consolidated.append(res)
+            
+    df_calc = pd.DataFrame(consolidated) if consolidated else pd.DataFrame(columns=[
+        "Seleccione el nombre del Estudiante", "Cuenta de Seleccione su nombre (Evaluador)", "Proyecto", "Nota ponderada", "Nota Rubrica Promedio"
+    ])
+    
+    if not df_calc.empty:
+        df_calc = df_calc.sort_values(by="Seleccione el nombre del Estudiante").reset_index(drop=True)
+        
+    # Compliance and Schedule tracking
+    compliance_records = []
+    df_schedule = None
+    
+    if schedule_excel_path:
+        try:
+            sched_wb = openpyxl.load_workbook(schedule_excel_path, data_only=True)
+            if "Hoja1" in sched_wb.sheetnames:
+                h_sheet = sched_wb["Hoja1"]
+                h_headers = [c.value for c in h_sheet[1]]
+                
+                idx_name = find_column_by_substring(h_headers, "NOMBRE")
+                idx_group = find_column_by_substring(h_headers, "# GRUPO")
+                idx_day = find_column_by_substring(h_headers, "DÍA DEFENSA")
+                idx_hour = find_column_by_substring(h_headers, "HORA")
+                idx_sala = find_column_by_substring(h_headers, "SALA")
+                idx_tutor = find_column_by_substring(h_headers, "TUTOR")
+                idx_proj = find_column_by_substring(h_headers, "proyecto")
+                
+                students_schedule = []
+                for r_idx in range(2, h_sheet.max_row + 1):
+                    row_vals = [h_sheet.cell(row=r_idx, column=c).value for c in range(1, len(h_headers) + 1)]
+                    if any(row_vals):
+                        s_name = row_vals[idx_name] if idx_name is not None else None
+                        if s_name:
+                            students_schedule.append({
+                                "student_raw": s_name,
+                                "student_norm": normalize_name(s_name),
+                                "group": row_vals[idx_group] if idx_group is not None else "",
+                                "day": row_vals[idx_day] if idx_day is not None else "",
+                                "hour": row_vals[idx_hour] if idx_hour is not None else "",
+                                "sala": row_vals[idx_sala] if idx_sala is not None else "",
+                                "doc_tutor": row_vals[idx_tutor] if idx_tutor is not None else "",
+                                "project": row_vals[idx_proj] if idx_proj is not None else ""
+                            })
+                            
+                df_sched_raw = pd.DataFrame(students_schedule)
+                
+                if not df_sched_raw.empty:
+                    # Group view schedule DataFrame
+                    grouped_sched = df_sched_raw.groupby("group")
+                    sched_rows = []
+                    for g_num, group_df in grouped_sched:
+                        names_list = list(group_df["student_raw"].unique())
+                        names_str = " / ".join(names_list)
+                        first_row = group_df.iloc[0]
+                        
+                        sched_rows.append({
+                            "Docente": first_row["doc_tutor"],
+                            "Estudiante(s) por calificar": names_str,
+                            "Día y Fecha": f"Día {first_row['day']}" if first_row["day"] else "",
+                            "Hora": first_row["hour"],
+                            "Sala": first_row["sala"],
+                            "Proyecto": first_row["project"]
+                        })
+                    df_schedule = pd.DataFrame(sched_rows)
+                    
+                    # Compliance Tracker (Tutor as the sole required evaluator!)
+                    for _, s_row in df_sched_raw.iterrows():
+                        s_norm = s_row["student_norm"]
+                        s_raw = s_row["student_raw"]
+                        day_lbl = f"Día {s_row['day']}" if s_row["day"] else ""
+                        
+                        tutor_raw = s_row["doc_tutor"]
+                        if tutor_raw:
+                            tutor_norm = normalize_name(tutor_raw)
+                            has_submitted = False
+                            if not df_individual.empty:
+                                submitted = df_individual[
+                                    (df_individual["Student_Normalized"] == s_norm) &
+                                    (df_individual["Evaluator_Normalized"] == tutor_norm)
+                                ]
+                                if not submitted.empty:
+                                    has_submitted = True
+                                    
+                            classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
+                            group_context = " / ".join(classmates)
+                            
+                            compliance_records.append({
+                                "Docente": tutor_raw,
+                                "Docente_Normalized": tutor_norm,
+                                "Estudiante": s_raw,
+                                "Estudiante_Normalized": s_norm,
+                                "Grupo_Alumnos": group_context,
+                                "Día y Fecha": day_lbl,
+                                "Hora": s_row["hour"],
+                                "Sala": s_row["sala"],
+                                "Rol": "Tutor (Evaluador Único)",
+                                "Estado": "Completado" if has_submitted else "Pendiente",
+                                "Proyecto": s_row["project"]
+                            })
+        except Exception as e:
+            print(f"Error loading schedule for written report: {e}")
+            
+    df_compliance = pd.DataFrame(compliance_records) if compliance_records else pd.DataFrame(columns=[
+        "Docente", "Docente_Normalized", "Estudiante", "Estudiante_Normalized", "Grupo_Alumnos", "Día y Fecha", "Hora", "Sala", "Rol", "Estado", "Proyecto"
+    ])
+    
+    return df_individual, df_calc, df_compliance, df_schedule
+
+def export_to_processed_excel_written(df_calc, output_path, df_individual=None, df_schedule=None):
+    """
+    Exports the consolidated Written Capstone report grades and qualitative rankings to a processed Excel workbook.
+    """
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        if df_individual is not None:
+            df_individual.to_excel(writer, sheet_name="Sheet1", index=False)
+            
+        df_calc.to_excel(writer, sheet_name="Calculo", index=False)
+        df_calc.to_excel(writer, sheet_name="Seguimiento", index=False)
+        
+        if df_schedule is not None:
+            df_schedule.to_excel(writer, sheet_name="CALIFICACION-DOCENTE", index=False)
+            
+        # Written Report Pesos lookup table
+        pesos_data = [
+            ("EXCELENTE", 25, 30, 10),
+            ("MUY BUENO", 20, 24, 8),
+            ("BUENO", 15, 18, 6),
+            ("REGULAR", 10, 12, 4),
+            ("INSUFICIENTE", 5, 6, 2)
+        ]
+        df_pesos = pd.DataFrame(pesos_data, columns=["Nivel (A)", "Puntos_25 (B)", "Puntos_30 (C)", "Puntos_10 (D)"])
         df_pesos.to_excel(writer, sheet_name="PESOS", index=False)

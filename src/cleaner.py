@@ -33,14 +33,14 @@ def normalize_name(name):
 
 def split_group_names(group_str):
     """
-    Splits a comma-separated string of group student names into a list of normalized names.
-    Example: 'Jácome Macías Anne, Tulcán Jaya Iván' -> ['JACOME MACIAS ANNE', 'TULCAN JAYA IVAN']
+    Splits a comma-separated or slash-separated string of group student names into a list of normalized names.
+    Example: 'Jácome Macías Anne / Tulcán Jaya Iván' -> ['JACOME MACIAS ANNE', 'TULCAN JAYA IVAN']
     """
     if not group_str:
         return []
     
-    # Split by comma
-    parts = str(group_str).split(",")
+    # Split by comma or slash
+    parts = re.split(r'[,/]', str(group_str))
     normalized_parts = []
     for part in parts:
         normalized = normalize_name(part)
