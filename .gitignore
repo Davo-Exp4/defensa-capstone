@@ -27,3 +27,4 @@ Thumbs.db
 
 # Generated reports & outputs
 data/consolidado_defensa_oral_procesado.xlsx
+data/*_PROCESADO.xlsx
