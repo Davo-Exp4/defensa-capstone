@@ -757,7 +757,7 @@ elif raw_path:
             col_exp1, col_exp2 = st.columns(2)
             with col_exp1:
                 st.markdown(f"""
-                ##### **Reporte Excel Oficial (.xlsx) - {selected_process}**
+                ##### **Reporte Excel Oficial (.xlsx) - {selected_section}**
                 Contiene:
                 * **Sheet1**: Base de datos de evaluaciones con campos completos.
                 * **Calculo y Seguimiento**: Promedios ponderados e IFS cualitativos para cada estudiante ordenados de forma alfabética.
@@ -786,4 +786,4 @@ elif raw_path:
 else:
     # Landing page instructions if no file is uploaded and demo is off
     st.warning("⚠️ Esperando carga de datos.")
-    st.info(f"Sube el **Reporte Crudo de {selected_process} (.xlsx)** en la barra lateral o activa la opción **'Cargar Cohorte de Prueba (Demo)'** para iniciar inmediatamente.")
+    st.info(f"Sube el **Reporte Crudo de {selected_section} (.xlsx)** en la barra lateral o activa la opción **'Cargar Cohorte de Prueba (Demo)'** para iniciar inmediatamente.")
