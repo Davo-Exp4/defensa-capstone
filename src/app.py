@@ -140,6 +140,16 @@ with st.sidebar:
         ]
     )
     
+    exclude_duplicates = False
+    if selected_section in ["🎓 Defensa Oral", "📝 Proyecto Capstone (Informe Escrito)"]:
+        st.markdown("---")
+        st.markdown("### **Configuración de Datos**")
+        exclude_duplicates = st.toggle(
+            "⚙️ Excluir Duplicados",
+            value=True,
+            help="Si se activa, el sistema considerará únicamente la evaluación más reciente (por ID/timestamp) enviada por cada docente para cada estudiante/grupo."
+        )
+    
     st.markdown("---")
     st.markdown("### **Carga de Datos Personalizados**")
     
@@ -189,13 +199,13 @@ schedule_path = None
 
 if selected_section == "🎓 Defensa Oral":
     active_criteria_map = CRITERIA_MAP
-    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-94).xlsx"
+    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-360).xlsx"
     process_func = process_oral_defense
     export_func = export_to_processed_excel
     export_file_name = "consolidado_defensa_oral_procesado.xlsx"
 elif selected_section == "📝 Proyecto Capstone (Informe Escrito)":
     active_criteria_map = WRITTEN_CRITERIA_MAP
-    demo_raw_file = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-11).xlsx"
+    demo_raw_file = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-39).xlsx"
     process_func = process_capstone_written
     export_func = export_to_processed_excel_written
     export_file_name = "consolidado_proyecto_capstone_escrito_procesado.xlsx"
@@ -245,6 +255,11 @@ if selected_section == "📅 Resumen General de Agenda":
                 headers = [cell.value for cell in sh[1]]
                 
                 def get_idx(lst, sub):
+                    # Try case-insensitive exact match first
+                    for idx, h in enumerate(lst):
+                        if h and str(h).strip().lower() == sub.lower():
+                            return idx
+                    # Fallback to substring match
                     for idx, h in enumerate(lst):
                         if h and sub.lower() in str(h).lower():
                             return idx
@@ -265,31 +280,58 @@ if selected_section == "📅 Resumen General de Agenda":
                 all_jurors = set()
                 all_students = set()
                 
+                def is_valid_agenda_cell(v):
+                    if v is None:
+                        return False
+                    v_str = str(v).strip()
+                    if v_str == "" or v_str.lower() in ["none", "nan", "null", "<na>"]:
+                        return False
+                    return True
+
                 for r_idx in range(2, sh.max_row + 1):
                     vals = [sh.cell(row=r_idx, column=c).value for c in range(1, len(headers) + 1)]
                     if any(vals):
+                        proj_val = vals[idx_proj] if idx_proj is not None and idx_proj < len(vals) else None
+                        int_val = vals[idx_int] if idx_int is not None and idx_int < len(vals) else None
+                        group_val = vals[idx_group] if idx_group is not None and idx_group < len(vals) else None
+                        
+                        # Skip ghost rows (completely empty of actual project or student names)
+                        if not is_valid_agenda_cell(int_val) and not is_valid_agenda_cell(proj_val) and not is_valid_agenda_cell(group_val):
+                            continue
+                            
                         # Unique jurors
                         for c_idx in [idx_tit, idx_tutor, idx_tercer, idx_adic]:
-                            if c_idx is not None and c_idx < len(vals) and vals[c_idx]:
+                            if c_idx is not None and c_idx < len(vals) and is_valid_agenda_cell(vals[c_idx]):
                                 all_jurors.add(str(vals[c_idx]).strip().upper())
                         # Unique students
-                        if idx_int is not None and idx_int < len(vals) and vals[idx_int]:
+                        if idx_int is not None and idx_int < len(vals) and is_valid_agenda_cell(vals[idx_int]):
                             students_list = [s.strip() for s in str(vals[idx_int]).split('/') if s.strip()]
                             for s in students_list:
-                                all_students.add(s.upper())
+                                if is_valid_agenda_cell(s):
+                                    all_students.add(s.upper())
                                 
+                        # Construct clean tribunal string
+                        tit_ok = is_valid_agenda_cell(vals[idx_tit]) if idx_tit is not None else False
+                        tercer_ok = is_valid_agenda_cell(vals[idx_tercer]) if idx_tercer is not None else False
+                        adic_ok = is_valid_agenda_cell(vals[idx_adic]) if idx_adic is not None and idx_adic < len(vals) else False
+                        
+                        tribunal_parts = []
+                        if tit_ok:
+                            tribunal_parts.append(str(vals[idx_tit]).strip())
+                        if tercer_ok:
+                            tribunal_parts.append(str(vals[idx_tercer]).strip())
+                        if adic_ok:
+                            tribunal_parts.append(str(vals[idx_adic]).strip())
+                            
                         rows.append({
                             "Grupo": vals[idx_group] if idx_group is not None else "",
-                            "Día": map_day_to_date(vals[idx_day]) if idx_day is not None and vals[idx_day] else "",
+                            "Día": map_day_to_date(vals[idx_day]) if idx_day is not None and is_valid_agenda_cell(vals[idx_day]) else "",
                             "Hora": vals[idx_hour] if idx_hour is not None else "",
                             "Sala": vals[idx_sala] if idx_sala is not None else "",
-                            "Tutor": vals[idx_tutor] if idx_tutor is not None else "",
-                            "Tribunal / Jurados": (
-                                f"{vals[idx_tit]} / {vals[idx_tercer]}" + 
-                                (f" / {vals[idx_adic]}" if idx_adic is not None and idx_adic < len(vals) and vals[idx_adic] else "")
-                            ) if idx_tit is not None else "",
-                            "Proyecto": vals[idx_proj] if idx_proj is not None else "",
-                            "Integrantes": vals[idx_int] if idx_int is not None else ""
+                            "Tutor": vals[idx_tutor] if idx_tutor is not None and is_valid_agenda_cell(vals[idx_tutor]) else "",
+                            "Tribunal / Jurados": " / ".join(tribunal_parts) if tribunal_parts else "",
+                            "Proyecto": vals[idx_proj] if idx_proj is not None and is_valid_agenda_cell(vals[idx_proj]) else "",
+                            "Integrantes": vals[idx_int] if idx_int is not None and is_valid_agenda_cell(vals[idx_int]) else ""
                         })
                         
                 df_sched = pd.DataFrame(rows)
@@ -366,18 +408,22 @@ if selected_section == "📅 Resumen General de Agenda":
             st.error(f"Error al cargar el cronograma: {e}")
     else:
         st.warning("⚠️ No se ha encontrado un cronograma en presentations_crcronograma.xlsx o cargado en la barra lateral.")
-
 elif raw_path:
     try:
-        # Load and run backend engine
-        df_individual, df_calc, df_compliance, df_schedule = process_func(raw_path, schedule_path)
+        # Load and run backend engine (with dynamic duplicate exclusion toggle)
+        df_individual, df_calc, df_compliance, df_schedule = process_func(
+            raw_path, 
+            schedule_path,
+            exclude_duplicates=exclude_duplicates
+        )
         
         # 4. TABBED INTERFACE
-        tab_general, tab_individual, tab_group, tab_compliance, tab_exporter = st.tabs([
+        tab_general, tab_individual, tab_group, tab_compliance, tab_duplicates, tab_exporter = st.tabs([
             "📊 Vista General de Cohorte",
             "👤 Reporte por Estudiante",
             "👥 Reporte por Grupos",
             "📋 Control de Seguimiento",
+            "🔍 Control de Duplicados",
             "📥 Descarga de Reportes"
         ])
         
@@ -390,22 +436,28 @@ elif raw_path:
             # Row of KPIs
             col1, col2, col3, col4 = st.columns(4)
             
-            avg_global_grade = df_calc["Nota ponderada"].mean()
+            avg_global_grade = df_calc["Nota ponderada"].mean() if not df_calc.empty else 0.0
             compliance_rate = 0.0
-            total_students = len(df_calc)
+            evaluated_students = len(df_calc)
             total_evaluations = len(df_individual)
+            
+            total_sched_students = evaluated_students
+            pending_students = 0
             
             if not df_compliance.empty:
                 total_sched = len(df_compliance)
                 completed_sched = len(df_compliance[df_compliance["Estado"] == "Completado"])
                 compliance_rate = (completed_sched / total_sched) * 100 if total_sched > 0 else 100.0
+                if "Estudiante_Normalized" in df_compliance.columns:
+                    total_sched_students = df_compliance["Estudiante_Normalized"].nunique()
+                    pending_students = total_sched_students - evaluated_students
             
             with col1:
                 st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-card-title">Estudiantes</div>
-                    <div class="metric-card-value">{total_students}</div>
-                    <div class="metric-card-desc">Total alumnos calificados</div>
+                    <div class="metric-card-value">{total_sched_students}</div>
+                    <div class="metric-card-desc"><b>{evaluated_students}</b> evaluados / <b>{pending_students}</b> pendientes</div>
                 </div>
                 """, unsafe_allow_html=True)
             with col2:
@@ -425,13 +477,32 @@ elif raw_path:
                 </div>
                 """, unsafe_allow_html=True)
             with col4:
+                desc_text = "Sin cronograma asignado"
+                if not df_compliance.empty:
+                    remaining_sched = total_sched - completed_sched
+                    desc_text = f"<b>{completed_sched}</b> de <b>{total_sched}</b> ({remaining_sched} restantes)"
                 st.markdown(f"""
                 <div class="metric-card" style="border-left-color: #f59e0b;">
                     <div class="metric-card-title">Compliance del Tribunal</div>
                     <div class="metric-card-value">{compliance_rate:.1f}%</div>
-                    <div class="metric-card-desc">Asistencia y envío de notas completado</div>
+                    <div class="metric-card-desc">{desc_text}</div>
                 </div>
                 """, unsafe_allow_html=True)
+                
+            # Visual Progress Bar
+            if not df_compliance.empty:
+                remaining_sched = total_sched - completed_sched
+                st.markdown(f"""
+                <div style="background-color: #ffffff; padding: 1rem 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; border-left: 5px solid #f59e0b;">
+                    <div style="font-size: 0.85rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;">
+                        Progreso de Calificaciones del Tribunal
+                    </div>
+                    <div style="font-size: 0.95rem; color: #1f2937; margin-bottom: 0.5rem;">
+                        Se han completado <b>{completed_sched}</b> de las <b>{total_sched}</b> evaluaciones programadas en el cronograma. Quedan <b>{remaining_sched}</b> calificaciones restantes por enviar.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                st.progress(compliance_rate / 100.0)
                 
             st.markdown("---")
             
@@ -763,17 +834,220 @@ elif raw_path:
                     text_color = "#047857" if val == "Completado" else "#b91c1c"
                     return f'background-color: {color}; color: {text_color}; font-weight: bold; text-align: center; border-radius: 4px;'
                 
+                def style_replacement(val):
+                    if val == "Sí ⚠️":
+                        return 'background-color: rgba(245, 158, 11, 0.2); color: #b45309; font-weight: bold; text-align: center; border-radius: 4px;'
+                    return 'text-align: center;'
+                
                 # Clean dataframe for aesthetic presentation
-                display_cols = ["Docente", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]
-                df_disp = df_filtered[display_cols].reset_index(drop=True)
+                display_cols = ["Docente", "Rol", "Docente_Real", "Is_Replacement", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]
+                df_disp = df_filtered[display_cols].copy()
+                df_disp["¿Reemplazo?"] = df_disp["Is_Replacement"].apply(lambda x: "Sí ⚠️" if x else "No")
+                df_disp["Docente Real (M365)"] = df_disp["Docente_Real"].apply(lambda x: x if x else "Pendiente")
+                df_disp = df_disp.rename(columns={
+                    "Docente": "Docente Planificado",
+                    "Estudiante": "Estudiante",
+                    "Sala": "Sala",
+                    "Día y Fecha": "Día y Fecha",
+                    "Hora": "Hora",
+                    "Estado": "Estado"
+                })
+                df_disp = df_disp[["Docente Planificado", "Rol", "Docente Real (M365)", "¿Reemplazo?", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]]
+                df_disp = df_disp.reset_index(drop=True)
                 
                 # Beautiful display table with colors
                 st.dataframe(
-                    df_disp.style.map(style_status, subset=["Estado"]),
+                    df_disp.style.map(style_status, subset=["Estado"]).map(style_replacement, subset=["¿Reemplazo?"]),
                     use_container_width=True
                 )
+                
+                # ----------------------------------------------------
+                # GENERADOR DE CORREOS DE SEGUIMIENTO (PENDIENTES)
+                # ----------------------------------------------------
+                st.markdown("---")
+                st.markdown("### **✉️ Generador de Correos de Seguimiento (Pendientes)**")
+                st.markdown("Genera automáticamente el texto preformateado para enviar un recordatorio por correo a los docentes que tienen evaluaciones pendientes.")
+                
+                df_pending_all = df_filtered[df_filtered["Estado"] == "Pendiente"]
+                
+                if not df_pending_all.empty:
+                    # Get unique planned teachers who actually have pending reviews
+                    unique_pending_teachers = sorted(list(df_pending_all["Docente"].unique()))
+                    
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        selected_followup_teacher = st.selectbox("Seleccione el docente con pendientes:", unique_pending_teachers, key="followup_teacher")
+                    with col_f2:
+                        raw_name = str(selected_followup_teacher).strip()
+                        name_parts = raw_name.split()
+                        default_greeting = name_parts[0].title()
+                        if len(name_parts) > 1 and name_parts[0].upper() in ["LUIS", "JUAN", "MARIA", "ANA", "JOSE", "CARLOS"]:
+                            default_greeting = f"{name_parts[0].title()} {name_parts[1].title()}"
+                        greeting_name = st.text_input("Nombre de saludo:", value=default_greeting, key=f"followup_greeting_{selected_followup_teacher}")
+                        
+                    col_f3, col_f4 = st.columns(2)
+                    with col_f3:
+                        is_oral = (selected_section == "🎓 Defensa Oral")
+                        default_url = "https://forms.cloud.microsoft/r/kgQZrg6FC9" if is_oral else "https://forms.cloud.microsoft/r/..."
+                        form_url = st.text_input("Enlace del Formulario:", value=default_url, key=f"followup_url_{selected_followup_teacher}")
+                    with col_f4:
+                        signature_name = st.text_input("Firma del correo:", value="Patricio David Ponce", key=f"followup_signature_{selected_followup_teacher}")
+                        
+                    df_teacher_pending = df_pending_all[df_pending_all["Docente"] == selected_followup_teacher]
+                    
+                    # Build plain text email body
+                    email_body = f"Estimado {greeting_name},\n\n"
+                    if is_oral:
+                        email_body += "Para completar el proceso de titulación, le solicito de favor calificar la DEFENSA ORAL a los siguientes estudiantes:\n\n"
+                    else:
+                        email_body += "Para completar el proceso de titulación, le solicito de favor calificar el INFORME ESCRITO CAPSTONE a los siguientes estudiantes:\n\n"
+                    
+                    # Markdown Table Headers
+                    email_body += f"{'Día':<8} | {'Fecha':<20} | {'Hora inicio':<11} | {'Hora fin':<8} | {'Sala':<8} | {'Proyecto':<75} | {'Estudiantes'}\n"
+                    email_body += f"{'-'*8}-+-{'-'*20}-+-{'-'*11}-+-{'-'*8}-+-{'-'*8}-+-{'-'*75}-+-{'-'*30}\n"
+                    
+                    for _, r in df_teacher_pending.iterrows():
+                        # Parse Día y Fecha
+                        parts_day = str(r["Día y Fecha"]).split("(")
+                        dia = parts_day[0].strip() if len(parts_day) > 0 else ""
+                        fecha = parts_day[1].replace(")", "").strip() if len(parts_day) > 1 else ""
+                        
+                        # Parse Hora
+                        parts_hour = str(r["Hora"]).split("-")
+                        hora_inicio = parts_hour[0].strip() if len(parts_hour) > 0 else ""
+                        hora_fin = parts_hour[1].strip() if len(parts_hour) > 1 else ""
+                        
+                        sala = r["Sala"]
+                        
+                        # Find project
+                        proyecto = r.get("Proyecto", "")
+                        if not proyecto:
+                            proyecto = r.get("Grupo_Alumnos", "")
+                        
+                        # Limit project length to keep formatting tidy in text area
+                        if len(str(proyecto)) > 72:
+                            proyecto = str(proyecto)[:69] + "..."
+                            
+                        student = r["Estudiante"]
+                        
+                        email_body += f"{dia:<8} | {fecha:<20} | {hora_inicio:<11} | {hora_fin:<8} | {sala:<8} | {proyecto:<75} | {student}\n"
+                    
+                    email_body += f"\npor favor registrar la calificación de su defensa en el siguiente formulario:\n"
+                    email_body += f"{form_url}\n\n"
+                    email_body += "Quedo atento a cualquier duda. Muchas gracias.\n\n"
+                    email_body += "Saludos,\n\n"
+                    email_body += f"{signature_name}"
+                    
+                    # Render beautifully in a text area
+                    st.text_area("📋 Cuerpo del Correo (Copiar y Pegar):", value=email_body, height=350, key=f"followup_textarea_{selected_followup_teacher}")
+                    st.info("💡 **Tip:** Streamlit proporciona un botón de **'Copiar'** en la esquina superior derecha del cuadro de texto anterior al pasar el mouse por encima.")
+                else:
+                    st.success("🎉 **¡Excelente! No hay evaluaciones pendientes para los filtros actuales.** Todos los docentes de esta selección han completado sus rúbricas.")
             else:
                 st.info("💡 Por favor, sube un **Excel de Planificación** con la pestaña 'CALIFICACION-DOCENTE' en la barra lateral para habilitar esta pestaña y monitorear la puntualidad de tus comités.")
+                
+        # ----------------------------------------------------
+        # TAB 3.5: DUPLICATE CONTROL AUDITOR
+        # ----------------------------------------------------
+        with tab_duplicates:
+            st.markdown("### **🔍 Control de Calificaciones Duplicadas**")
+            st.markdown("Aquí puedes auditar y monitorear si algún miembro del tribunal o tutor ha enviado más de una rúbrica para el mismo estudiante o grupo.")
+            
+            # Find duplicates using raw processing
+            df_ind_all, _, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=False)
+            
+            # Identify duplicate pairs
+            dup_mask = df_ind_all.duplicated(subset=['Evaluator_Normalized', 'Student_Normalized'], keep=False)
+            df_dups = df_ind_all[dup_mask].copy()
+            
+            if not df_dups.empty:
+                st.warning(f"⚠️ **Se han detectado {len(df_dups)} registros duplicados** (afecta a {len(df_dups.drop_duplicates(subset=['Evaluator_Normalized', 'Student_Normalized']))} casos únicos).")
+                
+                # Show status of exclusion
+                if exclude_duplicates:
+                    st.info("ℹ️ **El filtro automático está ACTIVADO:** El dashboard solo considera el envío más reciente (por ID/timestamp) y descarta los duplicados más antiguos para calcular los promedios.")
+                else:
+                    st.error("🚨 **El filtro automático está DESACTIVADO:** Las notas se promedian considerando todos los envíos duplicados, lo cual puede distorsionar el consolidado final.")
+                
+                # Table of duplicates styled
+                st.markdown("#### **Listado de Rúbricas Duplicadas Detectadas**")
+                
+                # We can construct a nice table showing: ID, Docente, Estudiante, Fecha, y cuál se conserva
+                dup_records = []
+                for (eval_norm, stud_norm), group_df in df_dups.groupby(['Evaluator_Normalized', 'Student_Normalized']):
+                    # Sort by ID descending to know which is the kept one (first when sorted desc)
+                    sorted_group = group_df.sort_values(by="Id", ascending=False)
+                    kept_id = sorted_group.iloc[0]["Id"]
+                    
+                    for _, row in group_df.iterrows():
+                        is_kept = row["Id"] == kept_id
+                        dup_records.append({
+                            "ID Envío": row["Id"],
+                            "Evaluador / Docente": row["Evaluator_Raw"],
+                            "Estudiante": row["Student_Raw"],
+                            "Fecha de Envío": row["Date"] if "Date" in row and row["Date"] else "N/D",
+                            "Estado en Consolidado": "🟢 Conservado (Reciente)" if (is_kept and exclude_duplicates) else ("🔴 Omitido" if exclude_duplicates else "⚠️ Promediado (Duplicado)")
+                        })
+                        
+                df_dup_table = pd.DataFrame(dup_records).sort_values(by="ID Envío", ascending=False).reset_index(drop=True)
+                
+                # Render table with styled statuses
+                def style_dup_status(val):
+                    if "Conservado" in val:
+                        color = "rgba(16, 185, 129, 0.2)"
+                        text_color = "#047857"
+                    elif "Omitido" in val:
+                        color = "rgba(239, 68, 68, 0.2)"
+                        text_color = "#b91c1c"
+                    else:
+                        color = "rgba(245, 158, 11, 0.2)"
+                        text_color = "#b45309"
+                    return f'background-color: {color}; color: {text_color}; font-weight: bold; text-align: center; border-radius: 4px;'
+                
+                st.dataframe(
+                    df_dup_table.style.map(style_dup_status, subset=["Estado en Consolidado"]),
+                    use_container_width=True
+                )
+                
+                # Show an audit comparative block for duplicate students
+                st.markdown("#### **🔍 Análisis Comparativo del Impacto de Duplicados**")
+                st.markdown("Selecciona un estudiante con envíos duplicados para comparar su nota con y sin exclusión de duplicados:")
+                
+                dup_students = sorted(df_dups["Student_Raw"].unique())
+                selected_dup_st = st.selectbox("Estudiante a Auditar:", dup_students)
+                
+                if selected_dup_st:
+                    # Let's show the individual reviews for this student
+                    st_norm = normalize_name(selected_dup_st)
+                    st_evals = df_ind_all[df_ind_all["Student_Normalized"] == st_norm]
+                    
+                    st.write(f"**Evaluaciones registradas para {selected_dup_st}:**")
+                    for _, row_eval in st_evals.iterrows():
+                        score = sum(row_eval[f"{k}_pts"] for k in active_criteria_map)
+                        is_newest = row_eval["Id"] == st_evals[st_evals["Evaluator_Normalized"] == row_eval["Evaluator_Normalized"]]["Id"].max()
+                        kept_lbl = " (Último envío)" if is_newest else " (Envío anterior)"
+                        st.write(f"- **ID {row_eval['Id']}** por **{row_eval['Evaluator_Raw']}**: {score:.0f}/100{kept_lbl}")
+                        
+                    # Compare final grade
+                    _, df_calc_no_ex, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=False)
+                    _, df_calc_ex, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=True)
+                    
+                    grade_no_ex = df_calc_no_ex[df_calc_no_ex["Seleccione el nombre del Estudiante"] == selected_dup_st]["Nota ponderada"].values[0]
+                    grade_ex = df_calc_ex[df_calc_ex["Seleccione el nombre del Estudiante"] == selected_dup_st]["Nota ponderada"].values[0]
+                    
+                    diff = grade_ex - grade_no_ex
+                    st.markdown(f"""
+                    <div style="background-color: #f3f4f6; padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                        <p style="margin:0;"><b>Nota PROMEDIANDO duplicados:</b> {grade_no_ex:.2f}/100</p>
+                        <p style="margin:0;"><b>Nota CONSERVANDO ÚLTIMO envío:</b> {grade_ex:.2f}/100</p>
+                        <p style="margin:0; color: {'#0d9488' if diff >= 0 else '#ef4444'}; font-weight: bold;">
+                            Impacto del filtrado de duplicados: {diff:+.2f} puntos en la nota final.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.success("🎉 **¡Excelente! No se han detectado envíos duplicados de rúbricas en esta cohorte.**")
+                st.info("Cada docente ha enviado exactamente una rúbrica por estudiante/grupo programado.")
                 
         # ----------------------------------------------------
         # TAB 4: FILE EXPORTER / EXCEL DOWNLOADS

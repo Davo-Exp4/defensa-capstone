@@ -20,6 +20,42 @@ def map_day_to_date(day_val):
     except ValueError:
         return f"Día {day_val}"
 
+def is_valid_name(val):
+    """
+    Checks if the value is a valid name and not an empty string or None representation.
+    """
+    if val is None:
+        return False
+    val_str = str(val).strip()
+    if val_str == "" or val_str.lower() in ["none", "nan", "null", "n/a", "<na>"]:
+        return False
+    return True
+
+def check_replacement(evaluator_raw, submitter_name):
+    """
+    Checks if the person who filled out the form (submitter_name) is a replacement
+    for the selected evaluator in the dropdown (evaluator_raw).
+    Returns True if it's a replacement, False if it's the same person or invalid.
+    """
+    if not is_valid_name(evaluator_raw) or not is_valid_name(submitter_name):
+        return False
+    norm_eval = normalize_name(evaluator_raw)
+    norm_sub = normalize_name(submitter_name)
+    if norm_eval == norm_sub:
+        return False
+    
+    # Split into words
+    words_eval = set(norm_eval.split())
+    words_sub = set(norm_sub.split())
+    
+    # If they share 2 or more words, they are likely the same person
+    intersection = words_eval.intersection(words_sub)
+    if len(intersection) >= 2:
+        return False
+        
+    return True
+
+
 # The 7 criteria in the exact order and with the exact names used in the historical processed file
 CRITERIA_MAP = {
     "apertura": {
@@ -127,7 +163,7 @@ def find_column_by_substring(headers, substring):
             return idx
     return None
 
-def process_oral_defense(raw_excel_path, schedule_excel_path=None):
+def process_oral_defense(raw_excel_path, schedule_excel_path=None, exclude_duplicates=False):
     """
     Processes the raw Microsoft Forms Excel sheet for Oral Defense.
     Groups evaluations by student, computes averages, maps qualitative labels,
@@ -170,11 +206,13 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
         evaluator_raw = row_vals[evaluator_col_idx]
         
         # Skip if student name is empty
-        if not student_raw:
+        if not is_valid_name(student_raw):
             continue
             
         student_norm = normalize_name(student_raw)
         evaluator_norm = normalize_name(evaluator_raw)
+        submitter_name = row_vals[4] if len(row_vals) > 4 else ""
+        is_replaced = check_replacement(evaluator_raw, submitter_name)
         
         rec = {
             "Id": row_vals[0],
@@ -183,6 +221,8 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
             "Evaluator_Raw": evaluator_raw,
             "Evaluator_Normalized": evaluator_norm,
             "Email": row_vals[3] if len(row_vals) > 3 else "",
+            "Submitter_Name": submitter_name if submitter_name else evaluator_raw,
+            "Is_Replacement": is_replaced,
             "Date": row_vals[8] if len(row_vals) > 8 else ""
         }
         
@@ -197,42 +237,139 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
         
     df_individual = pd.DataFrame(records)
     
+    # Optional: Exclude duplicate submissions (same evaluator + same student)
+    # Keeping only the most recent one (highest Id or last row)
+    if exclude_duplicates and not df_individual.empty:
+        df_individual = df_individual.sort_values(by="Id", ascending=False)
+        df_individual = df_individual.drop_duplicates(
+            subset=["Evaluator_Normalized", "Student_Normalized"], 
+            keep="first"
+        )
+        df_individual = df_individual.sort_values(by="Id").reset_index(drop=True)
+        
+    # Pre-load presentations schedule if available to apply the exactly 3 evaluators rule
+    df_sched_raw = None
+    if schedule_excel_path:
+        try:
+            sched_wb = openpyxl.load_workbook(schedule_excel_path, data_only=True)
+            if "Hoja1" in sched_wb.sheetnames:
+                h_sheet = sched_wb["Hoja1"]
+                h_headers = [c.value for c in h_sheet[1]]
+                idx_name = find_column_by_substring(h_headers, "NOMBRE")
+                idx_group = find_column_by_substring(h_headers, "# GRUPO")
+                idx_day = find_column_by_substring(h_headers, "DÍA DEFENSA")
+                idx_hour = next((i for i, h in enumerate(h_headers) if h and str(h).strip().upper() == "HORA"), find_column_by_substring(h_headers, "HORA"))
+                idx_sala = find_column_by_substring(h_headers, "SALA")
+                idx_tit = find_column_by_substring(h_headers, "DOCENTE TITULACIÓN")
+                idx_tutor = find_column_by_substring(h_headers, "TUTOR")
+                idx_tercer = find_column_by_substring(h_headers, "TERCER DOCENTE")
+                idx_adic = find_column_by_substring(h_headers, "DOCENTE ADICIONAL")
+                idx_proj = find_column_by_substring(h_headers, "proyecto")
+                
+                students_schedule = []
+                for r_idx in range(2, h_sheet.max_row + 1):
+                    row_vals = [h_sheet.cell(row=r_idx, column=c).value for c in range(1, len(h_headers) + 1)]
+                    if any(row_vals):
+                        s_name = row_vals[idx_name] if idx_name is not None else None
+                        if is_valid_name(s_name):
+                            students_schedule.append({
+                                "student_raw": s_name,
+                                "student_norm": normalize_name(s_name),
+                                "group": row_vals[idx_group] if idx_group is not None else "",
+                                "day": row_vals[idx_day] if idx_day is not None else "",
+                                "hour": row_vals[idx_hour] if idx_hour is not None else "",
+                                "sala": row_vals[idx_sala] if idx_sala is not None else "",
+                                "doc_tit": row_vals[idx_tit] if idx_tit is not None else "",
+                                "doc_tutor": row_vals[idx_tutor] if idx_tutor is not None else "",
+                                "doc_tercer": row_vals[idx_tercer] if idx_tercer is not None else "",
+                                "doc_adic": row_vals[idx_adic] if idx_adic is not None else "",
+                                "project": row_vals[idx_proj] if idx_proj is not None else ""
+                            })
+                df_sched_raw = pd.DataFrame(students_schedule)
+        except Exception as e:
+            print(f"Error pre-loading schedule in engine: {e}")
+
+    # Enforce exactly 3 evaluations per student for Oral Defense (if N > 3)
+    if not df_individual.empty and df_sched_raw is not None and not df_sched_raw.empty:
+        retained_indices = []
+        for s_norm, group in df_individual.groupby("Student_Normalized"):
+            if len(group) <= 3:
+                retained_indices.extend(group.index.tolist())
+            else:
+                # N > 3: We must select exactly 3 evaluations!
+                # Find the planned jurors for this student from schedule
+                planned_jurors = set()
+                st_sched = df_sched_raw[df_sched_raw["student_norm"] == s_norm]
+                if not st_sched.empty:
+                    s_row = st_sched.iloc[0]
+                    for f_name in ["doc_tit", "doc_tutor", "doc_tercer", "doc_adic"]:
+                        if f_name in s_row and is_valid_name(s_row[f_name]):
+                            planned_jurors.add(normalize_name(s_row[f_name]))
+                
+                # Sort group evaluations: matching planned jurors first, then earliest ID/timestamp
+                group_list = []
+                for idx, row in group.iterrows():
+                    eval_norm = row["Evaluator_Normalized"]
+                    sub_norm = normalize_name(row["Submitter_Name"]) if "Submitter_Name" in row and row["Submitter_Name"] else ""
+                    
+                    is_planned = False
+                    if eval_norm in planned_jurors:
+                        is_planned = True
+                    elif sub_norm in planned_jurors:
+                        is_planned = True
+                        
+                    group_list.append((idx, is_planned, row["Id"]))
+                
+                # Sort: is_planned=True first, then Id (earliest submission first)
+                group_list.sort(key=lambda x: (not x[1], x[2]))
+                
+                # Keep exactly the top 3
+                for item in group_list[:3]:
+                    retained_indices.append(item[0])
+                    
+        df_individual = df_individual.loc[retained_indices].sort_values(by="Id").reset_index(drop=True)
+    
     # 3. Consolidate by Student
     consolidated = []
-    grouped = df_individual.groupby("Student_Raw") # Keep raw name as the key/display name
-    
-    for student_raw, group in grouped:
-        student_norm = group["Student_Normalized"].iloc[0]
-        eval_count = len(group)
+    if not df_individual.empty:
+        grouped = df_individual.groupby("Student_Raw") # Keep raw name as the key/display name
         
-        res = {
-            "Seleccione el nombre del Estudiante": student_raw,
-            "Cuenta de Seleccione su nombre (Evaluador)": eval_count,
-        }
-        
-        # Compute averages and apply qualitative labels
-        nota_ponderada = 0.0
-        for key, c_info in CRITERIA_MAP.items():
-            avg_val = group[f"{key}_pts"].mean()
-            # In Excel, if the average has decimals, it remains a float.
-            res[c_info["clean_name"]] = avg_val
+        for student_raw, group in grouped:
+            student_norm = group["Student_Normalized"].iloc[0]
+            eval_count = len(group)
             
-            # Map qualitative labels based on score
-            if c_info["max_pts"] == 20:
-                res[c_info["qual_name"]] = get_qualitative_label_20(avg_val)
-            else:
-                res[c_info["qual_name"]] = get_qualitative_label_10(avg_val)
+            res = {
+                "Seleccione el nombre del Estudiante": student_raw,
+                "Cuenta de Seleccione su nombre (Evaluador)": eval_count,
+            }
+            
+            # Compute averages and apply qualitative labels
+            nota_ponderada = 0.0
+            for key, c_info in CRITERIA_MAP.items():
+                avg_val = group[f"{key}_pts"].mean()
+                # In Excel, if the average has decimals, it remains a float.
+                res[c_info["clean_name"]] = avg_val
                 
-            nota_ponderada += avg_val
+                # Map qualitative labels based on score
+                if c_info["max_pts"] == 20:
+                    res[c_info["qual_name"]] = get_qualitative_label_20(avg_val)
+                else:
+                    res[c_info["qual_name"]] = get_qualitative_label_10(avg_val)
+                    
+                nota_ponderada += avg_val
+                
+            res["Nota ponderada"] = nota_ponderada
+            res["Nota Rubrica Promedio"] = get_qualitative_label_final(nota_ponderada)
             
-        res["Nota ponderada"] = nota_ponderada
-        res["Nota Rubrica Promedio"] = get_qualitative_label_final(nota_ponderada)
+            consolidated.append(res)
         
-        consolidated.append(res)
-        
-    df_calc = pd.DataFrame(consolidated)
+    df_calc = pd.DataFrame(consolidated) if consolidated else pd.DataFrame(columns=[
+        "Seleccione el nombre del Estudiante", "Cuenta de Seleccione su nombre (Evaluador)", "Nota ponderada", "Nota Rubrica Promedio"
+    ])
+    
     # Sort students alphabetically
-    df_calc = df_calc.sort_values(by="Seleccione el nombre del Estudiante").reset_index(drop=True)
+    if not df_calc.empty:
+        df_calc = df_calc.sort_values(by="Seleccione el nombre del Estudiante").reset_index(drop=True)
     
     # 4. Handle Schedule and Compliance Tracking
     compliance_records = []
@@ -251,7 +388,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                 idx_name = find_column_by_substring(h_headers, "NOMBRE")
                 idx_group = find_column_by_substring(h_headers, "# GRUPO")
                 idx_day = find_column_by_substring(h_headers, "DÍA DEFENSA")
-                idx_hour = find_column_by_substring(h_headers, "HORA")
+                idx_hour = next((i for i, h in enumerate(h_headers) if h and str(h).strip().upper() == "HORA"), find_column_by_substring(h_headers, "HORA"))
                 idx_sala = find_column_by_substring(h_headers, "SALA")
                 idx_tit = find_column_by_substring(h_headers, "DOCENTE TITULACIÓN")
                 idx_tutor = find_column_by_substring(h_headers, "TUTOR")
@@ -265,7 +402,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                     row_vals = [h_sheet.cell(row=r_idx, column=c).value for c in range(1, len(h_headers) + 1)]
                     if any(row_vals):
                         s_name = row_vals[idx_name] if idx_name is not None else None
-                        if s_name:
+                        if is_valid_name(s_name):
                             students_schedule.append({
                                 "student_raw": s_name,
                                 "student_norm": normalize_name(s_name),
@@ -309,23 +446,32 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                     for _, s_row in df_sched_raw.iterrows():
                         s_norm = s_row["student_norm"]
                         s_raw = s_row["student_raw"]
+                        if not is_valid_name(s_raw):
+                            continue
                         day_lbl = map_day_to_date(s_row['day'])
                         
                         # Assigned docents list
                         assigned_jurors = []
-                        if s_row["doc_tit"]:
-                            assigned_jurors.append((s_row["doc_tit"], "Docente titulación"))
-                        if s_row["doc_tutor"]:
-                            assigned_jurors.append((s_row["doc_tutor"], "Tutor"))
-                        if s_row["doc_tercer"]:
-                            assigned_jurors.append((s_row["doc_tercer"], "Tercer docente"))
-                        if s_row["doc_adic"]:
-                            assigned_jurors.append((s_row["doc_adic"], "Docente adicional"))
+                        seen_jurors_set = set()
+                        for col_name, role in [
+                            ("doc_tit", "Docente titulación"),
+                            ("doc_tutor", "Tutor"),
+                            ("doc_tercer", "Tercer docente"),
+                            ("doc_adic", "Docente adicional")
+                        ]:
+                            juror_raw = s_row[col_name]
+                            if is_valid_name(juror_raw):
+                                juror_norm = normalize_name(juror_raw)
+                                if juror_norm not in seen_jurors_set:
+                                    seen_jurors_set.add(juror_norm)
+                                    assigned_jurors.append((juror_raw, role))
                             
                         # For each assigned docent, check if they evaluated this student
                         for juror_raw, role in assigned_jurors:
                             juror_norm = normalize_name(juror_raw)
                             has_submitted = False
+                            docente_real = ""
+                            is_replaced = False
                             if not df_individual.empty:
                                 submitted = df_individual[
                                     (df_individual["Student_Normalized"] == s_norm) &
@@ -333,6 +479,8 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                                 ]
                                 if not submitted.empty:
                                     has_submitted = True
+                                    docente_real = submitted.iloc[0]["Submitter_Name"]
+                                    is_replaced = submitted.iloc[0]["Is_Replacement"]
                                     
                             # Reconstruct group names for context
                             classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
@@ -341,6 +489,8 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                             compliance_records.append({
                                 "Docente": juror_raw,
                                 "Docente_Normalized": juror_norm,
+                                "Docente_Real": docente_real if has_submitted else "",
+                                "Is_Replacement": is_replaced if has_submitted else False,
                                 "Estudiante": s_raw,
                                 "Estudiante_Normalized": s_norm,
                                 "Grupo_Alumnos": group_context,
@@ -359,13 +509,16 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                 for r_idx in range(2, sched_sheet.max_row + 1):
                     row_vals = [sched_sheet.cell(row=r_idx, column=c).value for c in range(1, sched_sheet.max_column + 1)]
                     if any(row_vals):
-                        sched_rows.append({
-                            "Docente": row_vals[0],
-                            "Estudiante(s) por calificar": row_vals[1],
-                            "Día y Fecha": row_vals[2],
-                            "Hora": row_vals[3],
-                            "Sala": row_vals[4]
-                        })
+                        doc_val = row_vals[0]
+                        stud_val = row_vals[1]
+                        if is_valid_name(doc_val) and is_valid_name(stud_val):
+                            sched_rows.append({
+                                "Docente": doc_val,
+                                "Estudiante(s) por calificar": stud_val,
+                                "Día y Fecha": row_vals[2],
+                                "Hora": row_vals[3],
+                                "Sala": row_vals[4]
+                            })
                 df_schedule = pd.DataFrame(sched_rows)
         except Exception as e:
             print(f"Error loading schedule: {e}")
@@ -379,19 +532,23 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                 for r_idx in range(2, sched_sheet.max_row + 1):
                     row_vals = [sched_sheet.cell(row=r_idx, column=c).value for c in range(1, sched_sheet.max_column + 1)]
                     if any(row_vals):
-                        sched_rows.append({
-                            "Docente": row_vals[0],
-                            "Estudiante(s) por calificar": row_vals[1],
-                            "Día y Fecha": row_vals[2],
-                            "Hora": row_vals[3],
-                            "Sala": row_vals[4]
-                        })
+                        doc_val = row_vals[0]
+                        stud_val = row_vals[1]
+                        if is_valid_name(doc_val) and is_valid_name(stud_val):
+                            sched_rows.append({
+                                "Docente": doc_val,
+                                "Estudiante(s) por calificar": stud_val,
+                                "Día y Fecha": row_vals[2],
+                                "Hora": row_vals[3],
+                                "Sala": row_vals[4]
+                            })
                 df_schedule = pd.DataFrame(sched_rows)
         except Exception as e:
             print(f"Error loading schedule from raw workbook: {e}")
 
     # Build compliance tracker if schedule is available and no new records were populated
     if df_schedule is not None and not compliance_records:
+        import re
         # Cross-reference old format
         for idx, row in df_schedule.iterrows():
             docente_raw = row["Docente"]
@@ -400,7 +557,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
             hour = row["Hora"]
             sala = row["Sala"]
             
-            if docente_raw and students_field:
+            if is_valid_name(docente_raw) and is_valid_name(students_field):
                 docente_norm = normalize_name(docente_raw)
                 # Split student list
                 assigned_students = split_group_names(students_field)
@@ -408,6 +565,8 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                 # Check for each student if this evaluator has submitted a grade
                 for s_norm in assigned_students:
                     has_submitted = False
+                    docente_real = ""
+                    is_replaced = False
                     if not df_individual.empty:
                         submitted_rows = df_individual[
                             (df_individual["Student_Normalized"] == s_norm) &
@@ -415,6 +574,8 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                         ]
                         if not submitted_rows.empty:
                             has_submitted = True
+                            docente_real = submitted_rows.iloc[0]["Submitter_Name"]
+                            is_replaced = submitted_rows.iloc[0]["Is_Replacement"]
                     
                     s_raw_name = ""
                     if not df_individual.empty:
@@ -423,10 +584,11 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                             s_raw_name = matched_evals["Student_Raw"].iloc[0]
                     
                     if not s_raw_name:
-                        # Find raw name from the comma-separated text by searching for a match
-                        for chunk in str(students_field).split(","):
+                        # Find raw name from the slash/comma separated text by searching for a match
+                        chunks = [c.strip() for c in re.split(r'[/,]', str(students_field)) if c.strip()]
+                        for chunk in chunks:
                             if normalize_name(chunk) == s_norm:
-                                s_raw_name = chunk.strip()
+                                s_raw_name = chunk
                                 break
                     
                     if not s_raw_name:
@@ -435,6 +597,8 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                     compliance_records.append({
                         "Docente": docente_raw,
                         "Docente_Normalized": docente_norm,
+                        "Docente_Real": docente_real if has_submitted else "",
+                        "Is_Replacement": is_replaced if has_submitted else False,
                         "Estudiante": s_raw_name,
                         "Estudiante_Normalized": s_norm,
                         "Grupo_Alumnos": students_field,
@@ -445,9 +609,12 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None):
                         "Estado": "Completado" if has_submitted else "Pendiente"
                     })
                     
-    df_compliance = pd.DataFrame(compliance_records)
+    df_compliance = pd.DataFrame(compliance_records) if compliance_records else pd.DataFrame(columns=[
+        "Docente", "Docente_Normalized", "Docente_Real", "Is_Replacement", "Estudiante", "Estudiante_Normalized", "Grupo_Alumnos", "Día y Fecha", "Hora", "Sala", "Rol", "Estado"
+    ])
     
     return df_individual, df_calc, df_compliance, df_schedule
+
 
 def export_to_processed_excel(df_calc, output_path, df_individual=None, df_schedule=None):
     """
@@ -540,7 +707,7 @@ def get_qualitative_label_percent(score, max_pts):
     else:
         return "Insuficiente"
 
-def process_capstone_written(raw_excel_path, schedule_excel_path=None):
+def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_duplicates=False):
     """
     Processes the raw Microsoft Forms Excel sheet for Capstone Written Report.
     Each submission in the raw file represents a group's evaluation by a tutor.
@@ -590,7 +757,7 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
         group_raw = row_vals[group_col_idx]
         project_raw = row_vals[project_col_idx] if project_col_idx is not None else ""
         
-        if not group_raw:
+        if not is_valid_name(group_raw) or not is_valid_name(evaluator_raw):
             continue
             
         # Split names using our flexible split logic
@@ -600,6 +767,11 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
         # In case the lists differ in length, zip carefully or map raw names to normalized
         for i, s_norm in enumerate(members_normalized):
             s_raw = members_raw[i] if i < len(members_raw) else s_norm
+            if not is_valid_name(s_raw):
+                continue
+                
+            submitter_name = row_vals[4] if len(row_vals) > 4 else ""
+            is_replaced = check_replacement(evaluator_raw, submitter_name)
             
             rec = {
                 "Id": row_vals[0],
@@ -607,6 +779,9 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                 "Student_Normalized": s_norm,
                 "Evaluator_Raw": evaluator_raw,
                 "Evaluator_Normalized": normalize_name(evaluator_raw),
+                "Email": row_vals[3] if len(row_vals) > 3 else "",
+                "Submitter_Name": submitter_name if submitter_name else evaluator_raw,
+                "Is_Replacement": is_replaced,
                 "Project_Raw": project_raw,
                 "Group_Raw": group_raw
             }
@@ -622,6 +797,16 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
     df_individual = pd.DataFrame(records) if records else pd.DataFrame(columns=[
         "Id", "Student_Raw", "Student_Normalized", "Evaluator_Raw", "Evaluator_Normalized", "Project_Raw", "Group_Raw"
     ])
+    
+    # Optional: Exclude duplicate submissions (same evaluator + same student)
+    # Keeping only the most recent one (highest Id or last row)
+    if exclude_duplicates and not df_individual.empty:
+        df_individual = df_individual.sort_values(by="Id", ascending=False)
+        df_individual = df_individual.drop_duplicates(
+            subset=["Evaluator_Normalized", "Student_Normalized"], 
+            keep="first"
+        )
+        df_individual = df_individual.sort_values(by="Id").reset_index(drop=True)
     
     # Consolidate by student
     consolidated = []
@@ -670,7 +855,7 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                 idx_name = find_column_by_substring(h_headers, "NOMBRE")
                 idx_group = find_column_by_substring(h_headers, "# GRUPO")
                 idx_day = find_column_by_substring(h_headers, "DÍA DEFENSA")
-                idx_hour = find_column_by_substring(h_headers, "HORA")
+                idx_hour = next((i for i, h in enumerate(h_headers) if h and str(h).strip().upper() == "HORA"), find_column_by_substring(h_headers, "HORA"))
                 idx_sala = find_column_by_substring(h_headers, "SALA")
                 idx_tutor = find_column_by_substring(h_headers, "TUTOR")
                 idx_proj = find_column_by_substring(h_headers, "proyecto")
@@ -680,7 +865,7 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                     row_vals = [h_sheet.cell(row=r_idx, column=c).value for c in range(1, len(h_headers) + 1)]
                     if any(row_vals):
                         s_name = row_vals[idx_name] if idx_name is not None else None
-                        if s_name:
+                        if is_valid_name(s_name):
                             students_schedule.append({
                                 "student_raw": s_name,
                                 "student_norm": normalize_name(s_name),
@@ -717,12 +902,16 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                     for _, s_row in df_sched_raw.iterrows():
                         s_norm = s_row["student_norm"]
                         s_raw = s_row["student_raw"]
+                        if not is_valid_name(s_raw):
+                            continue
                         day_lbl = map_day_to_date(s_row['day'])
                         
                         tutor_raw = s_row["doc_tutor"]
-                        if tutor_raw:
+                        if is_valid_name(tutor_raw):
                             tutor_norm = normalize_name(tutor_raw)
                             has_submitted = False
+                            docente_real = ""
+                            is_replaced = False
                             if not df_individual.empty:
                                 submitted = df_individual[
                                     (df_individual["Student_Normalized"] == s_norm) &
@@ -730,6 +919,8 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                                 ]
                                 if not submitted.empty:
                                     has_submitted = True
+                                    docente_real = submitted.iloc[0]["Submitter_Name"]
+                                    is_replaced = submitted.iloc[0]["Is_Replacement"]
                                     
                             classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
                             group_context = " / ".join(classmates)
@@ -737,6 +928,8 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                             compliance_records.append({
                                 "Docente": tutor_raw,
                                 "Docente_Normalized": tutor_norm,
+                                "Docente_Real": docente_real if has_submitted else "",
+                                "Is_Replacement": is_replaced if has_submitted else False,
                                 "Estudiante": s_raw,
                                 "Estudiante_Normalized": s_norm,
                                 "Grupo_Alumnos": group_context,
@@ -747,11 +940,117 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None):
                                 "Estado": "Completado" if has_submitted else "Pendiente",
                                 "Proyecto": s_row["project"]
                             })
+                            
+            elif "CALIFICACION-DOCENTE" in sched_wb.sheetnames:
+                # Fallback to old schedule format
+                sched_sheet = sched_wb["CALIFICACION-DOCENTE"]
+                sched_rows = []
+                for r_idx in range(2, sched_sheet.max_row + 1):
+                    row_vals = [sched_sheet.cell(row=r_idx, column=c).value for c in range(1, sched_sheet.max_column + 1)]
+                    if any(row_vals):
+                        doc_val = row_vals[0]
+                        stud_val = row_vals[1]
+                        if is_valid_name(doc_val) and is_valid_name(stud_val):
+                            sched_rows.append({
+                                "Docente": doc_val,
+                                "Estudiante(s) por calificar": stud_val,
+                                "Día y Fecha": row_vals[2],
+                                "Hora": row_vals[3],
+                                "Sala": row_vals[4]
+                            })
+                df_schedule = pd.DataFrame(sched_rows)
         except Exception as e:
             print(f"Error loading schedule for written report: {e}")
             
+    # Also fallback: if the raw_excel_path has CALIFICACION-DOCENTE sheet, load it from there!
+    if df_schedule is None:
+        try:
+            if "CALIFICACION-DOCENTE" in wb.sheetnames:
+                sched_sheet = wb["CALIFICACION-DOCENTE"]
+                sched_rows = []
+                for r_idx in range(2, sched_sheet.max_row + 1):
+                    row_vals = [sched_sheet.cell(row=r_idx, column=c).value for c in range(1, sched_sheet.max_column + 1)]
+                    if any(row_vals):
+                        doc_val = row_vals[0]
+                        stud_val = row_vals[1]
+                        if is_valid_name(doc_val) and is_valid_name(stud_val):
+                            sched_rows.append({
+                                "Docente": doc_val,
+                                "Estudiante(s) por calificar": stud_val,
+                                "Día y Fecha": row_vals[2],
+                                "Hora": row_vals[3],
+                                "Sala": row_vals[4]
+                            })
+                df_schedule = pd.DataFrame(sched_rows)
+        except Exception as e:
+            print(f"Error loading schedule from raw workbook: {e}")
+
+    # Build compliance tracker if schedule is available and no new records were populated
+    if df_schedule is not None and not compliance_records:
+        import re
+        # Cross-reference old format
+        for idx, row in df_schedule.iterrows():
+            docente_raw = row["Docente"]
+            students_field = row["Estudiante(s) por calificar"]
+            day = row["Día y Fecha"]
+            hour = row["Hora"]
+            sala = row["Sala"]
+            
+            if is_valid_name(docente_raw) and is_valid_name(students_field):
+                docente_norm = normalize_name(docente_raw)
+                # Split student list
+                assigned_students = split_group_names(students_field)
+                
+                # Check for each student if this evaluator has submitted a grade
+                for s_norm in assigned_students:
+                    has_submitted = False
+                    docente_real = ""
+                    is_replaced = False
+                    if not df_individual.empty:
+                        submitted_rows = df_individual[
+                            (df_individual["Student_Normalized"] == s_norm) &
+                            (df_individual["Evaluator_Normalized"] == docente_norm)
+                        ]
+                        if not submitted_rows.empty:
+                            has_submitted = True
+                            docente_real = submitted_rows.iloc[0]["Submitter_Name"]
+                            is_replaced = submitted_rows.iloc[0]["Is_Replacement"]
+                    
+                    s_raw_name = ""
+                    if not df_individual.empty:
+                        matched_evals = df_individual[df_individual["Student_Normalized"] == s_norm]
+                        if not matched_evals.empty:
+                            s_raw_name = matched_evals["Student_Raw"].iloc[0]
+                    
+                    if not s_raw_name:
+                        # Find raw name from the slash/comma separated text by searching for a match
+                        chunks = [c.strip() for c in re.split(r'[/,]', str(students_field)) if c.strip()]
+                        for chunk in chunks:
+                            if normalize_name(chunk) == s_norm:
+                                s_raw_name = chunk
+                                break
+                    
+                    if not s_raw_name:
+                        s_raw_name = s_norm # Fallback
+                        
+                    compliance_records.append({
+                        "Docente": docente_raw,
+                        "Docente_Normalized": docente_norm,
+                        "Docente_Real": docente_real if has_submitted else "",
+                        "Is_Replacement": is_replaced if has_submitted else False,
+                        "Estudiante": s_raw_name,
+                        "Estudiante_Normalized": s_norm,
+                        "Grupo_Alumnos": students_field,
+                        "Día y Fecha": day,
+                        "Hora": hour,
+                        "Sala": sala,
+                        "Rol": "Tutor (Evaluador)",
+                        "Estado": "Completado" if has_submitted else "Pendiente",
+                        "Proyecto": ""
+                    })
+                    
     df_compliance = pd.DataFrame(compliance_records) if compliance_records else pd.DataFrame(columns=[
-        "Docente", "Docente_Normalized", "Estudiante", "Estudiante_Normalized", "Grupo_Alumnos", "Día y Fecha", "Hora", "Sala", "Rol", "Estado", "Proyecto"
+        "Docente", "Docente_Normalized", "Docente_Real", "Is_Replacement", "Estudiante", "Estudiante_Normalized", "Grupo_Alumnos", "Día y Fecha", "Hora", "Sala", "Rol", "Estado", "Proyecto"
     ])
     
     return df_individual, df_calc, df_compliance, df_schedule

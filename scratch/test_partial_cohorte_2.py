@@ -6,30 +6,22 @@ import pandas as pd
 import openpyxl
 from src.engine import process_oral_defense, CRITERIA_MAP
 
-def run_blackbox_test():
-    print("====================================================")
-    print("EJECUTANDO PRUEBA DE CAJA NEGRA (COHORTE 2)")
-    print("====================================================")
-    
-    raw_full_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-359).xlsx"
+def run_partial_test():
+    raw_full_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-360).xlsx"
     processed_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2_PROCESADO.xlsx"
     schedule_path = "data/presentaciones_crcronograma.xlsx"
     
     # Load 360 raw workbook, and save only first 95 rows (including header) to a temp file
-    try:
-        wb = openpyxl.load_workbook(raw_full_path)
-    except FileNotFoundError:
-        print(f"[ERROR] No se pudo encontrar el archivo raw: {raw_full_path}")
-        return False
-        
+    wb = openpyxl.load_workbook(raw_full_path)
     sheet = wb.active
+    
+    # Delete rows after 95
     if sheet.max_row > 95:
         sheet.delete_rows(96, sheet.max_row - 95)
         
-    os.makedirs("scratch", exist_ok=True)
     temp_raw_path = "scratch/temp_raw_94.xlsx"
     wb.save(temp_raw_path)
-    print(f"Slice temporal creado con éxito en: {temp_raw_path} (94 evaluaciones)")
+    print(f"Saved partial raw workbook to {temp_raw_path} with {sheet.max_row} rows.")
     
     # Process using our engine
     df_ind, df_calc, df_comp, _ = process_oral_defense(temp_raw_path, schedule_path, exclude_duplicates=False)
@@ -47,6 +39,7 @@ def run_blackbox_test():
     ours_indexed = df_calc.set_index("student_key")
     hist_indexed = df_calc_hist.set_index("student_key")
     
+    print("\n--- Verifying first 94 evaluations ---")
     mismatches = 0
     checked_students = 0
     
@@ -60,19 +53,10 @@ def run_blackbox_test():
         
     for s_key in ours_indexed.index:
         if s_key in hist_indexed.index:
-            student_name = ours_indexed.loc[s_key, "Seleccione el nombre del Estudiante"]
-            
-            # Skip Chiriboga Terán because he has 4 reviews, and our engine correctly
-            # filters him down to exactly 3 under the new 3-juror rule.
-            if "CHIRIBOGA TERAN" in s_key:
-                print(f"\n   [INFO] Omitiendo '{student_name}' en comparación estricta de caja negra:")
-                print(f"          Bajo la nueva regla estricta de 3 jurados, sus evaluaciones se redujeron a 3 (Nota={ours_indexed.loc[s_key, 'Nota ponderada']:.2f}).")
-                print(f"          El histórico retenía 4 evaluaciones sin filtrar (Nota={hist_indexed.loc[s_key, 'Nota ponderada']:.2f}).")
-                continue
-                
             checked_students += 1
             row_ours = ours_indexed.loc[s_key]
             row_hist = hist_indexed.loc[s_key]
+            student_name = row_ours["Seleccione el nombre del Estudiante"]
             
             for col in columns_to_compare:
                 if col not in row_ours or col not in row_hist:
@@ -89,18 +73,9 @@ def run_blackbox_test():
                         print(f"   [ERROR] Mismatch para {student_name} en '{col}': Nuestro='{val_ours}', Histórico='{val_hist}'")
                         mismatches += 1
                         
-    print("\n====================================================")
-    print("RESUMEN DE PRUEBA DE CAJA NEGRA")
-    print("====================================================")
-    print(f"Estudiantes validados (excluyendo filtros intencionales): {checked_students}")
-    print(f"Total de discrepancias encontradas: {mismatches}")
-    
+    print(f"Partial test completed. Students checked: {checked_students}, Mismatches: {mismatches}")
     if mismatches == 0:
-        print("\n🎉 ¡EXITO ROTUNDO! El 100% de los cálculos de promedios ponderados y cualitativos coincide perfectamente con la validación histórica.")
-        return True
-    else:
-        print("\n❌ FALLIDO: Se encontraron discrepancias. Revisar lógica en src/engine.py.")
-        return False
+        print("🎉 ¡EXITO ROTUNDO! Con los mismos datos de entrada, la lógica de cálculo del backend es 100% IDÉNTICA al histórico.")
 
 if __name__ == "__main__":
-    run_blackbox_test()
+    run_partial_test()
