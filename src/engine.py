@@ -1,5 +1,7 @@
 import pandas as pd
 import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from src.parser import extract_points
 from src.cleaner import normalize_name, split_group_names
 def map_day_to_date(day_val):
@@ -616,22 +618,168 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None, exclude_dupli
     return df_individual, df_calc, df_compliance, df_schedule
 
 
-def export_to_processed_excel(df_calc, output_path, df_individual=None, df_schedule=None):
+def style_excel_sheet(ws, is_compliance=False):
     """
-    Exports the consolidated grades and qualitative rankings to a processed Excel workbook.
+    Applies custom styling to an openpyxl worksheet.
+    Segoe UI font, sheet-specific header colors, frozen panes, auto column widths, 
+    number formats, soft-colored rows for pending, and highlights for pending teachers.
+    """
+    # Enable grid lines explicitly
+    try:
+        ws.sheet_view.showGridLines = True
+    except AttributeError:
+        try:
+            ws.views.sheetView[0].showGridLines = True
+        except Exception:
+            pass
+        
+    sheet_title = ws.title.strip().upper() if ws.title else ""
+    
+    # 1. Sheet-specific Header Color (Harmonious Theme)
+    # Default: Deep Navy Blue
+    header_color = "1E3A8A"
+    
+    if "CALIFICACION GENERAL" in sheet_title:
+        header_color = "0F766E"  # Muted Teal
+    elif "MATRIZ" in sheet_title or "COMPLIANCE" in sheet_title:
+        header_color = "374151"  # Slate Gray
+    elif "CALCULO" in sheet_title or "SEGUIMIENTO" in sheet_title:
+        header_color = "1E3A8A"  # Slate Navy
+    elif "CALIFICACION-DOCENTE" in sheet_title:
+        header_color = "4338CA"  # Elegant Indigo
+    elif "PESOS" in sheet_title:
+        header_color = "4B5563"  # Soft Charcoal
+        
+    header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color=header_color, end_color=header_color, fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    
+    thin_border = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9')
+    )
+    
+    # 1. Style Header Row
+    if ws.max_row >= 1:
+        ws.freeze_panes = "A2" # Freeze panes so header is static!
+        ws.row_dimensions[1].height = 28
+        
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+            
+    # 2. Style Data Rows
+    data_font = Font(name="Segoe UI", size=10)
+    data_align_left = Alignment(horizontal="left", vertical="center")
+    data_align_center = Alignment(horizontal="center", vertical="center")
+    
+    # Status fills
+    completado_fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid") # Soft green
+    completado_font = Font(name="Segoe UI", size=10, bold=True, color="137333") # Dark green text
+    
+    pendiente_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid") # Soft red
+    pendiente_font = Font(name="Segoe UI", size=10, bold=True, color="9C0006") # Dark red text
+    
+    reemplazo_fill = PatternFill(start_color="FEF7E0", end_color="FEF7E0", fill_type="solid") # Soft yellow
+    reemplazo_font = Font(name="Segoe UI", size=10, bold=True, color="B06000") # Dark yellow text
+    
+    fila_pendiente_fill = PatternFill(start_color="FEF2F2", end_color="FEF2F2", fill_type="solid") # Very soft red for whole row
+    
+    # Identify key column indices dynamically for compliance sheet
+    estado_col_idx = None
+    docente_col_idx = None
+    docente_real_col_idx = None
+    if is_compliance:
+        for c in range(1, ws.max_column + 1):
+            header_val = str(ws.cell(row=1, column=c).value).strip().upper()
+            if "ESTADO" in header_val:
+                estado_col_idx = c
+            elif "DOCENTE PLANIFICADO" in header_val or ("DOCENTE" in header_val and docente_col_idx is None):
+                docente_col_idx = c
+            elif "DOCENTE REAL" in header_val:
+                docente_real_col_idx = c
+                
+    for r in range(2, ws.max_row + 1):
+        ws.row_dimensions[r].height = 20
+        
+        # Check if the row status is pending
+        is_row_pending = False
+        if is_compliance and estado_col_idx is not None:
+            estado_val = str(ws.cell(row=r, column=estado_col_idx).value).strip()
+            if estado_val == "Pendiente":
+                is_row_pending = True
+                
+        for c in range(1, ws.max_column + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.font = data_font
+            cell.border = thin_border
+            
+            # Text alignment and formatting
+            val = cell.value
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                cell.alignment = data_align_center
+                if isinstance(val, float):
+                    cell.number_format = "0.00"
+            else:
+                cell.alignment = data_align_left
+                
+            # Highlight entire row with very soft red if pending
+            if is_row_pending:
+                cell.fill = fila_pendiente_fill
+                
+            # Apply compliance status styles if compliance sheet
+            if is_compliance:
+                val_str = str(val).strip()
+                if c == estado_col_idx:
+                    if val_str == "Completado":
+                        cell.fill = completado_fill
+                        cell.font = completado_font
+                        cell.alignment = data_align_center
+                    elif val_str == "Pendiente":
+                        cell.fill = pendiente_fill
+                        cell.font = pendiente_font
+                        cell.alignment = data_align_center
+                elif c == docente_col_idx and is_row_pending:
+                    # Highlight pending teacher planificado in bold red cell
+                    cell.fill = pendiente_fill
+                    cell.font = Font(name="Segoe UI", size=10, bold=True, color="9C0006")
+                elif c == docente_real_col_idx and val_str == "Pendiente":
+                    cell.fill = pendiente_fill
+                    cell.font = Font(name="Segoe UI", size=10, bold=True, color="9C0006")
+                elif "Sí" in val_str:
+                    cell.fill = reemplazo_fill
+                    cell.font = reemplazo_font
+                    cell.alignment = data_align_center
+                elif val_str == "No":
+                    cell.alignment = data_align_center
+                    
+    # 3. Auto-adjust columns width
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            val = cell.value
+            if val is not None:
+                max_len = max(max_len, len(str(val)))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+
+def export_to_processed_excel(df_calc, output_path, df_individual=None, df_schedule=None, df_compliance=None):
+    """
+    Exports the consolidated grades, qualitative rankings, and compliance matrices
+    to a beautifully styled processed Excel workbook.
     """
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        # 1. Main Sheet1 (Raw evaluations with parsed points or standard table)
+        # 1. Main Sheet1 (Raw evaluations)
         if df_individual is not None:
-            # We can write the individual reviews or raw format here.
-            # For our test verification, Sheet1 has a very specific format.
-            # To pass black-box testing against the Gold Standard, let's write Sheet1
-            # with calculated point columns if necessary, or just keep it simple.
             df_individual.to_excel(writer, sheet_name="CALIFICACION GENERAL", index=False)
             
         # 2. Sheet Calculo
-        # For historical cohorte_pasada_procesado.xlsx, sheets 'Calculo' and 'Seguimiento'
-        # are identical in columns. Let's write df_calc to both sheets.
         df_calc.to_excel(writer, sheet_name="Calculo", index=False)
         df_calc.to_excel(writer, sheet_name="Seguimiento", index=False)
         
@@ -639,8 +787,24 @@ def export_to_processed_excel(df_calc, output_path, df_individual=None, df_sched
         if df_schedule is not None:
             df_schedule.to_excel(writer, sheet_name="CALIFICACION-DOCENTE", index=False)
             
-        # 4. PESOS Sheet
-        # Write the qualitative pesos lookup table
+        # 4. Matriz de Seguimiento (Compliance)
+        if df_compliance is not None and not df_compliance.empty:
+            display_cols = ["Docente", "Rol", "Docente_Real", "Is_Replacement", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]
+            df_comp_export = df_compliance[display_cols].copy()
+            df_comp_export["¿Reemplazo?"] = df_comp_export["Is_Replacement"].apply(lambda x: "Sí ⚠️" if x else "No")
+            df_comp_export["Docente Real (M365)"] = df_comp_export["Docente_Real"].apply(lambda x: x if x else "Pendiente")
+            df_comp_export = df_comp_export.rename(columns={
+                "Docente": "Docente Planificado",
+                "Estudiante": "Estudiante",
+                "Sala": "Sala",
+                "Día y Fecha": "Día y Fecha",
+                "Hora": "Hora",
+                "Estado": "Estado"
+            })
+            df_comp_export = df_comp_export[["Docente Planificado", "Rol", "Docente Real (M365)", "¿Reemplazo?", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]]
+            df_comp_export.to_excel(writer, sheet_name="Matriz de Seguimiento", index=False)
+            
+        # 5. PESOS Sheet
         pesos_data = [
             ("EXCELENTE", 20, 10),
             ("MUY BUENO", 16, 8),
@@ -650,6 +814,13 @@ def export_to_processed_excel(df_calc, output_path, df_individual=None, df_sched
         ]
         df_pesos = pd.DataFrame(pesos_data, columns=["Nivel (A)", "Puntos_20 (B)", "Puntos_10 (C)"])
         df_pesos.to_excel(writer, sheet_name="PESOS", index=False)
+        
+        # Style all worksheets in the saved book
+        wb = writer.book
+        for sheetname in wb.sheetnames:
+            ws = wb[sheetname]
+            is_comp = (sheetname == "Matriz de Seguimiento")
+            style_excel_sheet(ws, is_compliance=is_comp)
 
 
 # ==========================================
@@ -1055,7 +1226,7 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
     
     return df_individual, df_calc, df_compliance, df_schedule
 
-def export_to_processed_excel_written(df_calc, output_path, df_individual=None, df_schedule=None):
+def export_to_processed_excel_written(df_calc, output_path, df_individual=None, df_schedule=None, df_compliance=None):
     """
     Exports the consolidated Written Capstone report grades and qualitative rankings to a processed Excel workbook.
     """
@@ -1069,6 +1240,23 @@ def export_to_processed_excel_written(df_calc, output_path, df_individual=None, 
         if df_schedule is not None:
             df_schedule.to_excel(writer, sheet_name="CALIFICACION-DOCENTE", index=False)
             
+        # 4. Matriz de Seguimiento (Compliance)
+        if df_compliance is not None and not df_compliance.empty:
+            display_cols = ["Docente", "Rol", "Docente_Real", "Is_Replacement", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]
+            df_comp_export = df_compliance[display_cols].copy()
+            df_comp_export["¿Reemplazo?"] = df_comp_export["Is_Replacement"].apply(lambda x: "Sí ⚠️" if x else "No")
+            df_comp_export["Docente Real (M365)"] = df_comp_export["Docente_Real"].apply(lambda x: x if x else "Pendiente")
+            df_comp_export = df_comp_export.rename(columns={
+                "Docente": "Docente Planificado",
+                "Estudiante": "Estudiante",
+                "Sala": "Sala",
+                "Día y Fecha": "Día y Fecha",
+                "Hora": "Hora",
+                "Estado": "Estado"
+            })
+            df_comp_export = df_comp_export[["Docente Planificado", "Rol", "Docente Real (M365)", "¿Reemplazo?", "Estudiante", "Sala", "Día y Fecha", "Hora", "Estado"]]
+            df_comp_export.to_excel(writer, sheet_name="Matriz de Seguimiento", index=False)
+            
         # Written Report Pesos lookup table
         pesos_data = [
             ("EXCELENTE", 25, 30, 10),
@@ -1079,3 +1267,10 @@ def export_to_processed_excel_written(df_calc, output_path, df_individual=None, 
         ]
         df_pesos = pd.DataFrame(pesos_data, columns=["Nivel (A)", "Puntos_25 (B)", "Puntos_30 (C)", "Puntos_10 (D)"])
         df_pesos.to_excel(writer, sheet_name="PESOS", index=False)
+        
+        # Style all worksheets in the saved book
+        wb = writer.book
+        for sheetname in wb.sheetnames:
+            ws = wb[sheetname]
+            is_comp = (sheetname == "Matriz de Seguimiento")
+            style_excel_sheet(ws, is_compliance=is_comp)

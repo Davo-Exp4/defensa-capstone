@@ -1058,7 +1058,7 @@ elif raw_path:
             
             # Export logic
             output_stream = BytesIO()
-            export_func(df_calc, output_stream, df_individual, df_schedule)
+            export_func(df_calc, output_stream, df_individual, df_schedule, df_compliance)
             excel_data = output_stream.getvalue()
             
             col_exp1, col_exp2 = st.columns(2)
