@@ -468,31 +468,84 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None, exclude_dupli
                                     seen_jurors_set.add(juror_norm)
                                     assigned_jurors.append((juror_raw, role))
                             
-                        # For each assigned docent, check if they evaluated this student
+                        # Get all submissions for this student in df_individual
+                        student_subs = df_individual[df_individual["Student_Normalized"] == s_norm].copy() if not df_individual.empty else pd.DataFrame()
+                        
+                        # Keep track of claimed submission indices to avoid double pairing
+                        claimed_sub_indices = set()
+                        
+                        # Phase 1: Direct matching for planified jurors
+                        juror_matches = {}
                         for juror_raw, role in assigned_jurors:
                             juror_norm = normalize_name(juror_raw)
-                            has_submitted = False
-                            docente_real = ""
-                            is_replaced = False
-                            if not df_individual.empty:
-                                submitted = df_individual[
-                                    (df_individual["Student_Normalized"] == s_norm) &
-                                    (df_individual["Evaluator_Normalized"] == juror_norm)
-                                ]
-                                if not submitted.empty:
-                                    has_submitted = True
-                                    docente_real = submitted.iloc[0]["Submitter_Name"]
-                                    is_replaced = submitted.iloc[0]["Is_Replacement"]
+                            matched_sub = None
+                            
+                            if not student_subs.empty:
+                                for sub_idx, sub_row in student_subs.iterrows():
+                                    if sub_idx in claimed_sub_indices:
+                                        continue
+                                    sub_eval_norm = sub_row["Evaluator_Normalized"]
+                                    sub_subm_norm = normalize_name(sub_row["Submitter_Name"])
                                     
-                            # Reconstruct group names for context
-                            classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
-                            group_context = " / ".join(classmates)
+                                    # Direct match if the selected Evaluator dropdown matches planned juror
+                                    # or the captured Submitter (M365 name) matches planned juror
+                                    if sub_eval_norm == juror_norm or sub_subm_norm == juror_norm:
+                                        matched_sub = (sub_idx, sub_row)
+                                        break
+                                        
+                            if matched_sub:
+                                sub_idx, sub_row = matched_sub
+                                claimed_sub_indices.add(sub_idx)
+                                juror_matches[juror_norm] = {
+                                    "has_submitted": True,
+                                    "docente_real": sub_row["Submitter_Name"],
+                                    "is_replaced": sub_row["Is_Replacement"]
+                                }
+                                
+                        # Phase 2: Smart replacement matching for planified jurors who didn't have a direct match
+                        for juror_raw, role in assigned_jurors:
+                            juror_norm = normalize_name(juror_raw)
+                            if juror_norm in juror_matches:
+                                continue # Already matched directly in Phase 1
+                                
+                            # Search for an unclaimed submission for this student
+                            unclaimed_sub = None
+                            if not student_subs.empty:
+                                for sub_idx, sub_row in student_subs.iterrows():
+                                    if sub_idx not in claimed_sub_indices:
+                                        unclaimed_sub = (sub_idx, sub_row)
+                                        break
+                                        
+                            if unclaimed_sub:
+                                sub_idx, sub_row = unclaimed_sub
+                                claimed_sub_indices.add(sub_idx)
+                                # Since they don't match, this is a replacement!
+                                juror_matches[juror_norm] = {
+                                    "has_submitted": True,
+                                    "docente_real": sub_row["Submitter_Name"],
+                                    "is_replaced": True # Forced replacement
+                                }
+                            else:
+                                juror_matches[juror_norm] = {
+                                    "has_submitted": False,
+                                    "docente_real": "",
+                                    "is_replaced": False
+                                }
+                                
+                        # Reconstruct group names for context
+                        classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
+                        group_context = " / ".join(classmates)
+                        
+                        # Add to compliance records
+                        for juror_raw, role in assigned_jurors:
+                            juror_norm = normalize_name(juror_raw)
+                            match_info = juror_matches[juror_norm]
                             
                             compliance_records.append({
                                 "Docente": juror_raw,
                                 "Docente_Normalized": juror_norm,
-                                "Docente_Real": docente_real if has_submitted else "",
-                                "Is_Replacement": is_replaced if has_submitted else False,
+                                "Docente_Real": match_info["docente_real"] if match_info["has_submitted"] else "",
+                                "Is_Replacement": match_info["is_replaced"] if match_info["has_submitted"] else False,
                                 "Estudiante": s_raw,
                                 "Estudiante_Normalized": s_norm,
                                 "Grupo_Alumnos": group_context,
@@ -500,7 +553,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None, exclude_dupli
                                 "Hora": s_row["hour"],
                                 "Sala": s_row["sala"],
                                 "Rol": role,
-                                "Estado": "Completado" if has_submitted else "Pendiente",
+                                "Estado": "Completado" if match_info["has_submitted"] else "Pendiente",
                                 "Proyecto": s_row["project"]
                             })
                             
@@ -1084,14 +1137,23 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
                             docente_real = ""
                             is_replaced = False
                             if not df_individual.empty:
+                                # First, try direct match by planned tutor name or submitter
                                 submitted = df_individual[
                                     (df_individual["Student_Normalized"] == s_norm) &
-                                    (df_individual["Evaluator_Normalized"] == tutor_norm)
+                                    ((df_individual["Evaluator_Normalized"] == tutor_norm) |
+                                     (df_individual["Submitter_Name"].apply(normalize_name) == tutor_norm))
                                 ]
+                                # Second, fallback to any unclaimed submission for this student
+                                if submitted.empty:
+                                    submitted = df_individual[df_individual["Student_Normalized"] == s_norm]
+                                    if not submitted.empty:
+                                        is_replaced = True
+                                        
                                 if not submitted.empty:
                                     has_submitted = True
                                     docente_real = submitted.iloc[0]["Submitter_Name"]
-                                    is_replaced = submitted.iloc[0]["Is_Replacement"]
+                                    if not is_replaced:
+                                        is_replaced = submitted.iloc[0]["Is_Replacement"]
                                     
                             classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
                             group_context = " / ".join(classmates)
@@ -1178,14 +1240,23 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
                     docente_real = ""
                     is_replaced = False
                     if not df_individual.empty:
+                        # First try direct match
                         submitted_rows = df_individual[
                             (df_individual["Student_Normalized"] == s_norm) &
-                            (df_individual["Evaluator_Normalized"] == docente_norm)
+                            ((df_individual["Evaluator_Normalized"] == docente_norm) |
+                             (df_individual["Submitter_Name"].apply(normalize_name) == docente_norm))
                         ]
+                        # Fallback to any submission for this student
+                        if submitted_rows.empty:
+                            submitted_rows = df_individual[df_individual["Student_Normalized"] == s_norm]
+                            if not submitted_rows.empty:
+                                is_replaced = True
+                                
                         if not submitted_rows.empty:
                             has_submitted = True
                             docente_real = submitted_rows.iloc[0]["Submitter_Name"]
-                            is_replaced = submitted_rows.iloc[0]["Is_Replacement"]
+                            if not is_replaced:
+                                is_replaced = submitted_rows.iloc[0]["Is_Replacement"]
                     
                     s_raw_name = ""
                     if not df_individual.empty:

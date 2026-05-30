@@ -11,7 +11,7 @@ def run_blackbox_test():
     print("EJECUTANDO PRUEBA DE CAJA NEGRA (COHORTE 2)")
     print("====================================================")
     
-    raw_full_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-359).xlsx"
+    raw_full_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-375).xlsx"
     processed_path = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2_PROCESADO.xlsx"
     schedule_path = "data/presentaciones_crcronograma.xlsx"
     

@@ -199,7 +199,7 @@ schedule_path = None
 
 if selected_section == "🎓 Defensa Oral":
     active_criteria_map = CRITERIA_MAP
-    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-360).xlsx"
+    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-375).xlsx"
     process_func = process_oral_defense
     export_func = export_to_processed_excel
     export_file_name = "consolidado_defensa_oral_procesado.xlsx"
