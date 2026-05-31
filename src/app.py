@@ -888,13 +888,9 @@ elif raw_path:
                             default_greeting = f"{name_parts[0].title()} {name_parts[1].title()}"
                         greeting_name = st.text_input("Nombre de saludo:", value=default_greeting, key=f"followup_greeting_{selected_followup_teacher}")
                         
-                    col_f3, col_f4 = st.columns(2)
-                    with col_f3:
-                        is_oral = (selected_section == "🎓 Defensa Oral")
-                        default_url = "https://forms.cloud.microsoft/r/kgQZrg6FC9" if is_oral else "https://forms.cloud.microsoft/r/G09LArh2PA"
-                        form_url = st.text_input("Enlace del Formulario:", value=default_url, key=f"followup_url_{selected_followup_teacher}")
-                    with col_f4:
-                        signature_name = st.text_input("Firma del correo:", value="Patricio David Ponce", key=f"followup_signature_{selected_followup_teacher}")
+                    is_oral = (selected_section == "🎓 Defensa Oral")
+                    default_url = "https://forms.cloud.microsoft/r/kgQZrg6FC9" if is_oral else "https://forms.cloud.microsoft/r/G09LArh2PA"
+                    form_url = st.text_input("Enlace del Formulario:", value=default_url, key=f"followup_url_{selected_followup_teacher}")
                         
                     df_teacher_pending = df_pending_all[df_pending_all["Docente"] == selected_followup_teacher]
                     
@@ -963,8 +959,7 @@ elif raw_path:
                         
                     email_body += f"{form_url}\n\n"
                     email_body += "Quedo atento a cualquier duda. Muchas gracias.\n\n"
-                    email_body += "Saludos,\n\n"
-                    email_body += f"{signature_name}"
+                    email_body += "Saludos,"
                     
                     # Render beautifully in a text area
                     st.text_area("📋 Cuerpo del Correo (Copiar y Pegar):", value=email_body, height=350, key=f"followup_textarea_{selected_followup_teacher}")
