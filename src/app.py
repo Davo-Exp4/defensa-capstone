@@ -937,12 +937,19 @@ elif raw_path:
                     else:
                         email_body += "Para completar el proceso de titulación, le solicito de favor calificar el PROYECTO CAPSTONE a los siguientes estudiantes:\n\n"
                         
-                        # Markdown Table Headers for Written Capstone (Group and Project)
-                        email_body += f"{'Grupo (Estudiantes)':<70} | {'Proyecto'}\n"
-                        email_body += f"{'-'*70}-+-{'-'*80}\n"
+                        # Markdown Table Headers for Written Capstone (with Day, Date, Hour, Group and Project)
+                        email_body += f"{'Día':<8} | {'Fecha':<20} | {'Horario':<15} | {'Grupo (Estudiantes)':<70} | {'Proyecto'}\n"
+                        email_body += f"{'-'*8}-+-{'-'*20}-+-{'-'*15}-+-{'-'*70}-+-{'-'*80}\n"
                         
                         for _, r in df_teacher_pending.iterrows():
+                            # Parse Día y Fecha
+                            parts_day = str(r["Día y Fecha"]).split("(")
+                            dia = parts_day[0].strip() if len(parts_day) > 0 else ""
+                            fecha = parts_day[1].replace(")", "").strip() if len(parts_day) > 1 else ""
+                            
+                            horario = r["Hora"]
                             students = r["Estudiante"]
+                            
                             proyecto = r.get("Proyecto", "")
                             if not proyecto:
                                 proyecto = r.get("Grupo_Alumnos", "")
@@ -950,7 +957,7 @@ elif raw_path:
                             if len(str(proyecto)) > 77:
                                 proyecto = str(proyecto)[:77] + "..."
                                 
-                            email_body += f"{students:<70} | {proyecto}\n"
+                            email_body += f"{dia:<8} | {fecha:<20} | {horario:<15} | {students:<70} | {proyecto}\n"
                             
                         email_body += f"\npor favor registrar la calificación del proyecto en el siguiente formulario:\n"
                         
