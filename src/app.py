@@ -438,11 +438,11 @@ elif raw_path:
             
             avg_global_grade = df_calc["Nota ponderada"].mean() if not df_calc.empty else 0.0
             compliance_rate = 0.0
-            evaluated_students = len(df_calc)
             total_evaluations = len(df_individual)
             
-            total_sched_students = evaluated_students
+            total_sched_students = len(df_calc)
             pending_students = 0
+            evaluated_students = len(df_calc)
             
             if not df_compliance.empty:
                 total_sched = len(df_compliance)
@@ -450,7 +450,10 @@ elif raw_path:
                 compliance_rate = (completed_sched / total_sched) * 100 if total_sched > 0 else 100.0
                 if "Estudiante_Normalized" in df_compliance.columns:
                     total_sched_students = df_compliance["Estudiante_Normalized"].nunique()
-                    pending_students = total_sched_students - evaluated_students
+                    # A student/group is pending if they have at least one 'Pendiente' record in compliance
+                    pending_student_names = df_compliance[df_compliance["Estado"] == "Pendiente"]["Estudiante_Normalized"].unique()
+                    pending_students = len(pending_student_names)
+                    evaluated_students = total_sched_students - pending_students
             
             with col1:
                 st.markdown(f"""
