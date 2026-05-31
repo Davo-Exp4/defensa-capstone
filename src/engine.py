@@ -1090,15 +1090,26 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
                     if any(row_vals):
                         s_name = row_vals[idx_name] if idx_name is not None else None
                         if is_valid_name(s_name):
+                            s_norm = normalize_name(s_name)
+                            s_group = row_vals[idx_group] if idx_group is not None else ""
+                            s_proj = row_vals[idx_proj] if idx_proj is not None else ""
+                            s_tutor = row_vals[idx_tutor] if idx_tutor is not None else ""
+                            
+                            # Programmatic unifications for Lema and Alvear (Written Capstone ONLY)
+                            if s_norm.lower() in ["lema chiliquinga paul alejandro", "alvear lema emilio jose"]:
+                                s_group = "62-64"
+                                s_proj = "Sistema inteligente de automatización, predicción y atención asistida para  optimizar la gestión de casos en soporte técnico para la empresa  Hispasat en Ecuador"
+                                s_tutor = "SANTIAGO SOLÓRZANO LESCANO"
+                                
                             students_schedule.append({
                                 "student_raw": s_name,
-                                "student_norm": normalize_name(s_name),
-                                "group": row_vals[idx_group] if idx_group is not None else "",
+                                "student_norm": s_norm,
+                                "group": s_group,
                                 "day": row_vals[idx_day] if idx_day is not None else "",
                                 "hour": row_vals[idx_hour] if idx_hour is not None else "",
                                 "sala": row_vals[idx_sala] if idx_sala is not None else "",
-                                "doc_tutor": row_vals[idx_tutor] if idx_tutor is not None else "",
-                                "project": row_vals[idx_proj] if idx_proj is not None else ""
+                                "doc_tutor": s_tutor,
+                                "project": s_proj
                             })
                             
                 df_sched_raw = pd.DataFrame(students_schedule)
