@@ -735,7 +735,7 @@ elif raw_path:
                     for m_idx, member_norm in enumerate(members):
                         with cols[m_idx]:
                             # Retrieve student data
-                            df_match = df_calc[df_calc["Seleccione el nombre del Estudiante"].apply(normalize_name) == member_norm]
+                            df_match = df_calc[df_calc["Seleccione el nombre del Estudiante"].apply(normalize_name).str.contains(member_norm)]
                             
                             if not df_match.empty:
                                 st_sum = df_match.iloc[0]
@@ -1031,12 +1031,17 @@ elif raw_path:
                         kept_lbl = " (Último envío)" if is_newest else " (Envío anterior)"
                         st.write(f"- **ID {row_eval['Id']}** por **{row_eval['Evaluator_Raw']}**: {score:.0f}/100{kept_lbl}")
                         
-                    # Compare final grade
-                    _, df_calc_no_ex, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=False)
-                    _, df_calc_ex, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=True)
-                    
-                    grade_no_ex = df_calc_no_ex[df_calc_no_ex["Seleccione el nombre del Estudiante"] == selected_dup_st]["Nota ponderada"].values[0]
-                    grade_ex = df_calc_ex[df_calc_ex["Seleccione el nombre del Estudiante"] == selected_dup_st]["Nota ponderada"].values[0]
+                    match_col = "Seleccione el nombre del Estudiante"
+                    row_no_ex = df_calc_no_ex[df_calc_no_ex[match_col] == selected_dup_st]
+                    if row_no_ex.empty:
+                        row_no_ex = df_calc_no_ex[df_calc_no_ex[match_col].astype(str).str.contains(selected_dup_st)]
+                        
+                    row_ex = df_calc_ex[df_calc_ex[match_col] == selected_dup_st]
+                    if row_ex.empty:
+                        row_ex = df_calc_ex[df_calc_ex[match_col].astype(str).str.contains(selected_dup_st)]
+                        
+                    grade_no_ex = row_no_ex["Nota ponderada"].values[0] if not row_no_ex.empty else 0.0
+                    grade_ex = row_ex["Nota ponderada"].values[0] if not row_ex.empty else 0.0
                     
                     diff = grade_ex - grade_no_ex
                     st.markdown(f"""

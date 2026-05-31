@@ -1032,16 +1032,15 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
         )
         df_individual = df_individual.sort_values(by="Id").reset_index(drop=True)
     
-    # Consolidate by student
+    # Consolidate by group
     consolidated = []
     if not df_individual.empty:
-        grouped = df_individual.groupby("Student_Raw")
-        for student_raw, group in grouped:
-            student_norm = group["Student_Normalized"].iloc[0]
-            eval_count = len(group)
+        grouped = df_individual.groupby("Group_Raw")
+        for group_raw, group in grouped:
+            eval_count = group["Id"].nunique()
             
             res = {
-                "Seleccione el nombre del Estudiante": student_raw,
+                "Seleccione el nombre del Estudiante": group_raw,
                 "Cuenta de Seleccione su nombre (Evaluador)": eval_count,
                 "Proyecto": group["Project_Raw"].iloc[0] if group["Project_Raw"].iloc[0] else ""
             }
