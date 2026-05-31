@@ -1123,55 +1123,63 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
                     df_schedule = pd.DataFrame(sched_rows)
                     
                     # Compliance Tracker (Tutor as the sole required evaluator!)
-                    for _, s_row in df_sched_raw.iterrows():
-                        s_norm = s_row["student_norm"]
-                        s_raw = s_row["student_raw"]
-                        if not is_valid_name(s_raw):
-                            continue
-                        day_lbl = map_day_to_date(s_row['day'])
+                    # Group-based compliance tracking for Written Capstone as requested!
+                    for g_num, group_df in grouped_sched:
+                        first_row = group_df.iloc[0]
+                        names_list = list(group_df["student_raw"].unique())
+                        names_str = " / ".join(names_list)
                         
-                        tutor_raw = s_row["doc_tutor"]
+                        day_lbl = map_day_to_date(first_row['day'])
+                        tutor_raw = first_row["doc_tutor"]
+                        
                         if is_valid_name(tutor_raw):
                             tutor_norm = normalize_name(tutor_raw)
                             has_submitted = False
                             docente_real = ""
                             is_replaced = False
-                            if not df_individual.empty:
-                                # First, try direct match by planned tutor name or submitter
-                                submitted = df_individual[
-                                    (df_individual["Student_Normalized"] == s_norm) &
-                                    ((df_individual["Evaluator_Normalized"] == tutor_norm) |
-                                     (df_individual["Submitter_Name"].apply(normalize_name) == tutor_norm))
-                                ]
-                                # Second, fallback to any unclaimed submission for this student
-                                if submitted.empty:
-                                    submitted = df_individual[df_individual["Student_Normalized"] == s_norm]
-                                    if not submitted.empty:
-                                        is_replaced = True
-                                        
-                                if not submitted.empty:
-                                    has_submitted = True
-                                    docente_real = submitted.iloc[0]["Submitter_Name"]
-                                    if not is_replaced:
-                                        is_replaced = submitted.iloc[0]["Is_Replacement"]
-                                    
-                            classmates = df_sched_raw[df_sched_raw["group"] == s_row["group"]]["student_raw"].tolist()
-                            group_context = " / ".join(classmates)
                             
+                            # Check if the tutor has graded ANY of the student names in the group
+                            for _, s_row in group_df.iterrows():
+                                s_norm = s_row["student_norm"]
+                                if not df_individual.empty:
+                                    # First, try direct match by planned tutor name or submitter
+                                    submitted = df_individual[
+                                        (df_individual["Student_Normalized"] == s_norm) &
+                                        ((df_individual["Evaluator_Normalized"] == tutor_norm) |
+                                         (df_individual["Submitter_Name"].apply(normalize_name) == tutor_norm))
+                                    ]
+                                    if not submitted.empty:
+                                        has_submitted = True
+                                        docente_real = submitted.iloc[0]["Submitter_Name"]
+                                        is_replaced = submitted.iloc[0]["Is_Replacement"]
+                                        break
+                                        
+                            # If no direct match was found, try fallback to any submission for any of the students in the group
+                            if not has_submitted:
+                                for _, s_row in group_df.iterrows():
+                                    s_norm = s_row["student_norm"]
+                                    if not df_individual.empty:
+                                        submitted = df_individual[df_individual["Student_Normalized"] == s_norm]
+                                        if not submitted.empty:
+                                            has_submitted = True
+                                            docente_real = submitted.iloc[0]["Submitter_Name"]
+                                            is_replaced = True
+                                            break
+                                            
                             compliance_records.append({
                                 "Docente": tutor_raw,
                                 "Docente_Normalized": tutor_norm,
                                 "Docente_Real": docente_real if has_submitted else "",
                                 "Is_Replacement": is_replaced if has_submitted else False,
-                                "Estudiante": s_raw,
-                                "Estudiante_Normalized": s_norm,
-                                "Grupo_Alumnos": group_context,
+                                "Estudiante": names_str, # Show the whole group!
+                                "Estudiante_Normalized": names_str,
+                                "Grupo_Alumnos": names_str,
                                 "Día y Fecha": day_lbl,
-                                "Hora": s_row["hour"],
-                                "Sala": s_row["sala"],
-                                "Rol": "Tutor (Evaluador Único)",
+                                "Hora": first_row["hour"],
+                                "Sala": first_row["sala"],
+                                "Rol": "Tutor (Evaluador)",
                                 "Estado": "Completado" if has_submitted else "Pendiente",
-                                "Proyecto": s_row["project"]
+                                "Proyecto": first_row["project"]
                             })
                             
             elif "CALIFICACION-DOCENTE" in sched_wb.sheetnames:
@@ -1234,11 +1242,13 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
                 # Split student list
                 assigned_students = split_group_names(students_field)
                 
-                # Check for each student if this evaluator has submitted a grade
+                # Check for each group if this evaluator has submitted a grade (Group-based compliance tracking!)
+                has_submitted = False
+                docente_real = ""
+                is_replaced = False
+                
+                # Check if the tutor has graded ANY of the students in the group
                 for s_norm in assigned_students:
-                    has_submitted = False
-                    docente_real = ""
-                    is_replaced = False
                     if not df_individual.empty:
                         # First try direct match
                         submitted_rows = df_individual[
@@ -1246,50 +1256,38 @@ def process_capstone_written(raw_excel_path, schedule_excel_path=None, exclude_d
                             ((df_individual["Evaluator_Normalized"] == docente_norm) |
                              (df_individual["Submitter_Name"].apply(normalize_name) == docente_norm))
                         ]
-                        # Fallback to any submission for this student
-                        if submitted_rows.empty:
-                            submitted_rows = df_individual[df_individual["Student_Normalized"] == s_norm]
-                            if not submitted_rows.empty:
-                                is_replaced = True
-                                
                         if not submitted_rows.empty:
                             has_submitted = True
                             docente_real = submitted_rows.iloc[0]["Submitter_Name"]
-                            if not is_replaced:
-                                is_replaced = submitted_rows.iloc[0]["Is_Replacement"]
-                    
-                    s_raw_name = ""
-                    if not df_individual.empty:
-                        matched_evals = df_individual[df_individual["Student_Normalized"] == s_norm]
-                        if not matched_evals.empty:
-                            s_raw_name = matched_evals["Student_Raw"].iloc[0]
-                    
-                    if not s_raw_name:
-                        # Find raw name from the slash/comma separated text by searching for a match
-                        chunks = [c.strip() for c in re.split(r'[/,]', str(students_field)) if c.strip()]
-                        for chunk in chunks:
-                            if normalize_name(chunk) == s_norm:
-                                s_raw_name = chunk
+                            is_replaced = submitted_rows.iloc[0]["Is_Replacement"]
+                            break
+                            
+                # Second try fallback to any submission for any of the students
+                if not has_submitted:
+                    for s_norm in assigned_students:
+                        if not df_individual.empty:
+                            submitted_rows = df_individual[df_individual["Student_Normalized"] == s_norm]
+                            if not submitted_rows.empty:
+                                has_submitted = True
+                                docente_real = submitted_rows.iloc[0]["Submitter_Name"]
+                                is_replaced = True
                                 break
-                    
-                    if not s_raw_name:
-                        s_raw_name = s_norm # Fallback
-                        
-                    compliance_records.append({
-                        "Docente": docente_raw,
-                        "Docente_Normalized": docente_norm,
-                        "Docente_Real": docente_real if has_submitted else "",
-                        "Is_Replacement": is_replaced if has_submitted else False,
-                        "Estudiante": s_raw_name,
-                        "Estudiante_Normalized": s_norm,
-                        "Grupo_Alumnos": students_field,
-                        "Día y Fecha": day,
-                        "Hora": hour,
-                        "Sala": sala,
-                        "Rol": "Tutor (Evaluador)",
-                        "Estado": "Completado" if has_submitted else "Pendiente",
-                        "Proyecto": ""
-                    })
+                                
+                compliance_records.append({
+                    "Docente": docente_raw,
+                    "Docente_Normalized": docente_norm,
+                    "Docente_Real": docente_real if has_submitted else "",
+                    "Is_Replacement": is_replaced if has_submitted else False,
+                    "Estudiante": students_field,
+                    "Estudiante_Normalized": students_field,
+                    "Grupo_Alumnos": students_field,
+                    "Día y Fecha": day,
+                    "Hora": hour,
+                    "Sala": sala,
+                    "Rol": "Tutor (Evaluador)",
+                    "Estado": "Completado" if has_submitted else "Pendiente",
+                    "Proyecto": ""
+                })
                     
     df_compliance = pd.DataFrame(compliance_records) if compliance_records else pd.DataFrame(columns=[
         "Docente", "Docente_Normalized", "Docente_Real", "Is_Replacement", "Estudiante", "Estudiante_Normalized", "Grupo_Alumnos", "Día y Fecha", "Hora", "Sala", "Rol", "Estado", "Proyecto"
