@@ -891,7 +891,7 @@ elif raw_path:
                     col_f3, col_f4 = st.columns(2)
                     with col_f3:
                         is_oral = (selected_section == "🎓 Defensa Oral")
-                        default_url = "https://forms.cloud.microsoft/r/kgQZrg6FC9" if is_oral else "https://forms.cloud.microsoft/r/..."
+                        default_url = "https://forms.cloud.microsoft/r/kgQZrg6FC9" if is_oral else "https://forms.cloud.microsoft/r/G09LArh2PA"
                         form_url = st.text_input("Enlace del Formulario:", value=default_url, key=f"followup_url_{selected_followup_teacher}")
                     with col_f4:
                         signature_name = st.text_input("Firma del correo:", value="Patricio David Ponce", key=f"followup_signature_{selected_followup_teacher}")
@@ -902,40 +902,58 @@ elif raw_path:
                     email_body = f"Estimado {greeting_name},\n\n"
                     if is_oral:
                         email_body += "Para completar el proceso de titulación, le solicito de favor calificar la DEFENSA ORAL a los siguientes estudiantes:\n\n"
-                    else:
-                        email_body += "Para completar el proceso de titulación, le solicito de favor calificar el INFORME ESCRITO CAPSTONE a los siguientes estudiantes:\n\n"
-                    
-                    # Markdown Table Headers
-                    email_body += f"{'Día':<8} | {'Fecha':<20} | {'Hora inicio':<11} | {'Hora fin':<8} | {'Sala':<8} | {'Proyecto':<75} | {'Estudiantes'}\n"
-                    email_body += f"{'-'*8}-+-{'-'*20}-+-{'-'*11}-+-{'-'*8}-+-{'-'*8}-+-{'-'*75}-+-{'-'*30}\n"
-                    
-                    for _, r in df_teacher_pending.iterrows():
-                        # Parse Día y Fecha
-                        parts_day = str(r["Día y Fecha"]).split("(")
-                        dia = parts_day[0].strip() if len(parts_day) > 0 else ""
-                        fecha = parts_day[1].replace(")", "").strip() if len(parts_day) > 1 else ""
                         
-                        # Parse Hora
-                        parts_hour = str(r["Hora"]).split("-")
-                        hora_inicio = parts_hour[0].strip() if len(parts_hour) > 0 else ""
-                        hora_fin = parts_hour[1].strip() if len(parts_hour) > 1 else ""
+                        # Markdown Table Headers
+                        email_body += f"{'Día':<8} | {'Fecha':<20} | {'Hora inicio':<11} | {'Hora fin':<8} | {'Sala':<8} | {'Proyecto':<75} | {'Estudiantes'}\n"
+                        email_body += f"{'-'*8}-+-{'-'*20}-+-{'-'*11}-+-{'-'*8}-+-{'-'*8}-+-{'-'*75}-+-{'-'*30}\n"
                         
-                        sala = r["Sala"]
-                        
-                        # Find project
-                        proyecto = r.get("Proyecto", "")
-                        if not proyecto:
-                            proyecto = r.get("Grupo_Alumnos", "")
-                        
-                        # Limit project length to keep formatting tidy in text area
-                        if len(str(proyecto)) > 72:
-                            proyecto = str(proyecto)[:69] + "..."
+                        for _, r in df_teacher_pending.iterrows():
+                            # Parse Día y Fecha
+                            parts_day = str(r["Día y Fecha"]).split("(")
+                            dia = parts_day[0].strip() if len(parts_day) > 0 else ""
+                            fecha = parts_day[1].replace(")", "").strip() if len(parts_day) > 1 else ""
                             
-                        student = r["Estudiante"]
+                            # Parse Hora
+                            parts_hour = str(r["Hora"]).split("-")
+                            hora_inicio = parts_hour[0].strip() if len(parts_hour) > 0 else ""
+                            hora_fin = parts_hour[1].strip() if len(parts_hour) > 1 else ""
+                            
+                            sala = r["Sala"]
+                            
+                            # Find project
+                            proyecto = r.get("Proyecto", "")
+                            if not proyecto:
+                                proyecto = r.get("Grupo_Alumnos", "")
+                            
+                            # Limit project length to keep formatting tidy in text area
+                            if len(str(proyecto)) > 72:
+                                proyecto = str(proyecto)[:69] + "..."
+                                
+                            student = r["Estudiante"]
+                            
+                            email_body += f"{dia:<8} | {fecha:<20} | {hora_inicio:<11} | {hora_fin:<8} | {sala:<8} | {proyecto:<75} | {student}\n"
                         
-                        email_body += f"{dia:<8} | {fecha:<20} | {hora_inicio:<11} | {hora_fin:<8} | {sala:<8} | {proyecto:<75} | {student}\n"
-                    
-                    email_body += f"\npor favor registrar la calificación de su defensa en el siguiente formulario:\n"
+                        email_body += f"\npor favor registrar la calificación de su defensa en el siguiente formulario:\n"
+                    else:
+                        email_body += "Para completar el proceso de titulación, le solicito de favor calificar el PROYECTO CAPSTONE a los siguientes estudiantes:\n\n"
+                        
+                        # Markdown Table Headers for Written Capstone (Group and Project)
+                        email_body += f"{'Grupo (Estudiantes)':<70} | {'Proyecto'}\n"
+                        email_body += f"{'-'*70}-+-{'-'*80}\n"
+                        
+                        for _, r in df_teacher_pending.iterrows():
+                            students = r["Estudiante"]
+                            proyecto = r.get("Proyecto", "")
+                            if not proyecto:
+                                proyecto = r.get("Grupo_Alumnos", "")
+                                
+                            if len(str(proyecto)) > 77:
+                                proyecto = str(proyecto)[:77] + "..."
+                                
+                            email_body += f"{students:<70} | {proyecto}\n"
+                            
+                        email_body += f"\npor favor registrar la calificación del proyecto en el siguiente formulario:\n"
+                        
                     email_body += f"{form_url}\n\n"
                     email_body += "Quedo atento a cualquier duda. Muchas gracias.\n\n"
                     email_body += "Saludos,\n\n"
