@@ -20,7 +20,7 @@ def run_written_verification():
     print("EJECUTANDO VERIFICACIÓN DE INFORME ESCRITO CAPSTONE")
     print("====================================================")
     
-    raw_path = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-39).xlsx"
+    raw_path = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-59).xlsx"
     schedule_path = "data/presentaciones_crcronograma.xlsx"
     
     if not os.path.exists(raw_path) or not os.path.exists(schedule_path):
@@ -77,7 +77,7 @@ def run_written_verification():
             "ALVEAR LEMA EMILIO JOSE" in student_val,
             "SANTIAGO SOLÓRZANO LESCANO" == tutor_val,
             "Hispasat" in proj_val,
-            status_val == "Pendiente" # No responses in 39-row sheet yet
+            status_val == "Completado" # Now graded in the new 59-row sheet!
         ]
         
         if all(checks):
@@ -107,9 +107,9 @@ def run_written_verification():
     
     new_row_idx = sheet.max_row + 1
     sheet.cell(row=new_row_idx, column=1, value=999) # Fake ID
-    sheet.cell(row=new_row_idx, column=evaluator_col, value='SANTIAGO SOLÓRZANO LESCANO')
-    sheet.cell(row=new_row_idx, column=group_col, value='LEMA CHILIQUINGA PAUL ALEJANDRO')
-    sheet.cell(row=new_row_idx, column=proj_col, value='Sistema inteligente Hispasat')
+    sheet.cell(row=new_row_idx, column=evaluator_col, value='CHRISTIAM GARZÓN')
+    sheet.cell(row=new_row_idx, column=group_col, value='PONCE TAMAYO JUAN CARLOS')
+    sheet.cell(row=new_row_idx, column=proj_col, value='Proyecto Ponce')
     
     # Criteria values
     for col_idx in range(10, 15):
@@ -122,14 +122,14 @@ def run_written_verification():
     # Re-run engine with simulated file
     _, _, df_comp_sim, _ = process_capstone_written(temp_sim_path, schedule_path)
     
-    row_sim = df_comp_sim[df_comp_sim["Estudiante"].str.contains("LEMA CHILIQUINGA|ALVEAR LEMA")].iloc[0]
+    row_sim = df_comp_sim[df_comp_sim["Estudiante"].str.contains("PONCE TAMAYO")].iloc[0]
     status_sim = row_sim["Estado"]
     docente_real_sim = row_sim["Docente_Real"]
     
     print(f"  - Estado Simulado:      '{status_sim}'")
     print(f"  - Docente Real:         '{docente_real_sim}'")
     
-    if status_sim == "Completado" and docente_real_sim == "SANTIAGO SOLÓRZANO LESCANO":
+    if status_sim == "Completado" and docente_real_sim == "CHRISTIAM GARZÓN":
         print("[OK] La regla de negocio se cumple: calificar a uno de los dos valida de inmediato al grupo.")
     else:
         print("[ERROR] Falló la regla de validación cruzada. El grupo sigue pendiente o no registró al evaluador real.")

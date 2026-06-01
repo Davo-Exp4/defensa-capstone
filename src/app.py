@@ -199,13 +199,13 @@ schedule_path = None
 
 if selected_section == "🎓 Defensa Oral":
     active_criteria_map = CRITERIA_MAP
-    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-375).xlsx"
+    demo_raw_file = "data/DEFENSA ORAL DE PROYECTO CAPSTONE - COHORTE 2(1-380).xlsx"
     process_func = process_oral_defense
     export_func = export_to_processed_excel
     export_file_name = "consolidado_defensa_oral_procesado.xlsx"
 elif selected_section == "📝 Proyecto Capstone (Informe Escrito)":
     active_criteria_map = WRITTEN_CRITERIA_MAP
-    demo_raw_file = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-39).xlsx"
+    demo_raw_file = "data/EVALUACIÓN PROYECTO CAPSTONE - COHORTE 2(1-59).xlsx"
     process_func = process_capstone_written
     export_func = export_to_processed_excel_written
     export_file_name = "consolidado_proyecto_capstone_escrito_procesado.xlsx"
@@ -1051,6 +1051,10 @@ elif raw_path:
                         kept_lbl = " (Último envío)" if is_newest else " (Envío anterior)"
                         st.write(f"- **ID {row_eval['Id']}** por **{row_eval['Evaluator_Raw']}**: {score:.0f}/100{kept_lbl}")
                         
+                    # Compare final grade
+                    _, df_calc_no_ex, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=False)
+                    _, df_calc_ex, _, _ = process_func(raw_path, schedule_path, exclude_duplicates=True)
+                    
                     match_col = "Seleccione el nombre del Estudiante"
                     row_no_ex = df_calc_no_ex[df_calc_no_ex[match_col] == selected_dup_st]
                     if row_no_ex.empty:
