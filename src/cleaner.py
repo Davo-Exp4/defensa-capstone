@@ -29,6 +29,10 @@ def normalize_name(name):
     # Just in case, clean any trailing dots or punctuation
     cleaned_str = cleaned_str.strip()
     
+    # Consolidate Ivan Patricio Ortiz Garces to Ivan Ortiz
+    if cleaned_str == "IVAN PATRICIO ORTIZ GARCES":
+        cleaned_str = "IVAN ORTIZ"
+        
     return cleaned_str
 
 def split_group_names(group_str):

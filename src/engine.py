@@ -470,7 +470,7 @@ def process_oral_defense(raw_excel_path, schedule_excel_path=None, exclude_dupli
                                     day_val = str(s_row['day']).strip()
                                     hour_val = str(s_row['hour']).strip()
                                     if day_val == "2" and (hour_val.startswith("11:00") or hour_val.startswith("11:30")):
-                                        juror_raw = "IVAN PATRICIO ORTIZ GARCES"
+                                        juror_raw = "IVÁN ORTIZ"
                                         juror_norm = normalize_name(juror_raw)
                                         
                                 if juror_norm not in seen_jurors_set:
