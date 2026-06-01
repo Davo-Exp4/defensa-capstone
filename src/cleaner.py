@@ -23,6 +23,9 @@ def normalize_name(name):
     # Convert to uppercase
     upper_str = ascii_str.upper()
     
+    # Remove varying apostrophes/backticks to make normalization identical for names like D'Espaux / D`Espaux
+    upper_str = upper_str.replace("`", "").replace("'", "").replace("’", "").replace("‘", "")
+    
     # Collapse multiple whitespaces and remove non-word/non-space chars (except letters)
     cleaned_str = re.sub(r'\s+', ' ', upper_str)
     
